@@ -4,7 +4,7 @@ This project is about some lighting for my mercedes-benz.
 It initially started with an illuminated star in the front grill, which I wanted to control automated or manually via an AP and a html page. 
 Later I decided to add some underglow LEDs, therefore I added two additional MCUs. One ESP8266 inside the cabin to quickly switch between different preset modes without the need of visiting the html page. The other MCU is controlling the 600 WS2812 digital LEDs attached to the underbody of my car.
 
-I started this project in early October of 2021 (I had four boring weeks of vacation from my job as starting electronics engineer ;)) and finished the only "star-controlled" version in this timeframe. In late December I started thinking about how awesome an additional underglow would be on my car and that beeing the case decided to continue my work on this project. So I ordered the needed parts to start working again during my christmas vacation. Sadly, there were only two weeks fully packed with christmas meetings and new-year preperations to work on my new concepts. That's why I didn't finish everything and am currently still working on this project :)
+I started this project in early September of 2021 (I had four boring weeks of vacation from my job as starting electronics engineer ;)) and finished the only "star-controlled" version in this timeframe. In late December I started thinking about how awesome an additional underglow would be on my car and that beeing the case decided to continue my work on this project. So I ordered the needed parts to start working again during my christmas vacation. Sadly, there were only two weeks fully packed with christmas meetings and new-year preperations to work on my new concepts. That's why I didn't finish everything and am currently still working on this project :)
 
 ## MCUs
 I currently have 3 MCUs to control everything
@@ -21,7 +21,7 @@ This is a circuit diagramm from the older version, in which only the StarControl
 ![Schematic_Star-Control_2021-10-06](https://user-images.githubusercontent.com/33253725/149627361-69b01865-dca2-4f18-b78a-5a95abb0b29b.png)
 
 ## Battery concept & Vehicle wiring  
-Because all of this relys on the power of my vehicle's battery I made a concept on how to power the whole circutry without draining my battery if the car is sleeping.
+Because all of this relys on the power of my vehicle's battery I made a concept on how to power the whole circuitry without draining my battery if the car is sleeping.
 I decided to only power the MCUs if the car wakes up and therefore acitvates relay clamp 15. Then there is clamp 15R and the starter clamp 50 which I use as input signals to compute the state of the enigine (running or not). If the motor gets clamp 50 is pulled high during the starting process and 15R remains high until the key is rotated to state 15 in which the engine switches off. I also read the state of the DRLs which I decided to control myself with 2 MOSFETs. Unfortunately I ran into the problem that the ECU of the car notices that the current draw on the original DRL lines is 0 mA if not connected to ground and therefore displays a warning message on my head unit. I solved this problem by choosing accordingly dimensioned high power resisitors with metal heatsinks to spread the heat safely. Attached is a rough concept from the early development states of this project.
 
 ![Flowchart](https://user-images.githubusercontent.com/33253725/149628122-031fb700-c198-4e6d-90bc-a2dc74feb59b.png)
