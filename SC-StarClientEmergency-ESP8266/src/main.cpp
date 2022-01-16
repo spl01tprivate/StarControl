@@ -195,7 +195,7 @@ void setup()
 
   // MQTT
   broker.init();
-  broker.subscribe(starhost_avemsg);
+  broker.subscribe("#");
   debug("[MQTT] Succesfully started MQTT-Broker (IP: ");
   debug(WiFi.softAPIP());
   debugln(")");
@@ -288,13 +288,13 @@ void interpretInputs()
     // Decide to set or reset APIOvrOff
     if (selectedMode == 1)
     {
-      debugln(" - Emergeny on!");
+      debugln(" - Emergency on!");
       debugln("\n" + mqttPublisher(apiOvrOff_topic, "1"));
       apiOverrideOff = true;
     }
     else
     {
-      debugln(" - Emergeny off!");
+      debugln(" - Emergency off!");
       debugln("\n" + mqttPublisher(apiOvrOff_topic, "0"));
       apiOverrideOff = false;
     }
