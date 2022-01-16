@@ -58,8 +58,7 @@
 #define color_topic "color"
 #define brtns_topic "brtns"
 #define speed_topic "speed"
-#define strobe_topic "fxmode/strobe"
-#define rainbow_topic "fxmode/rainbow"
+#define fxmode_topic "fxmode"
 
 #define emergency_avemsg "emeg_ave"
 #define starhost_avemsg "host_ave"
@@ -72,6 +71,9 @@ IPAddress subnet = IPAddress(255, 255, 255, 0);
 
 // Modes & Restrictions
 unsigned int selectedMode = -1;
+unsigned int selectedModeBefore = -1;
+unsigned long modeChangeTime = 0;
+const unsigned long modeChangeTimeThres = 100;
 
 bool apiOverrideOff;
 
@@ -127,25 +129,10 @@ public:
         hostConnected = true;
         hostWasConnected = true;
         if (selectedMode == 1)
-        {
           debugln("\n" + mqttPublisher(apiOvrOff_topic, "1"));
-        }
-        else if (selectedMode == 2)
-        {
+        else
           debugln("\n" + mqttPublisher(apiOvrOff_topic, "0"));
-          debugln("\n" + mqttPublisher(rainbow_topic, "0"));
-        }
-        else if (selectedMode == 3)
-        {
-          debugln("\n" + mqttPublisher(apiOvrOff_topic, "0"));
-          debugln("\n" + mqttPublisher(strobe_topic, "0"));
-          debugln("\n" + mqttPublisher(rainbow_topic, "1"));
-        }
-        else if (selectedMode == 4)
-        {
-          debugln("\n" + mqttPublisher(apiOvrOff_topic, "0"));
-          debugln("\n" + mqttPublisher(strobe_topic, "1"));
-        }
+        debugln("\n" + mqttPublisher(fxmode_topic, String(selectedMode)));
       }
     }
     else if (topic == alive_topic)
@@ -166,10 +153,10 @@ void setup();
 void loop();
 void handlers();
 void readInputs();
+void interpretInputs();
 void ledBlink();
 void ledBlinkError();
 void ledBlinkSuccess();
-void initLastState();
 void mqttAliveMessage();
 
 //***** SETUP *****
@@ -191,12 +178,9 @@ void setup()
   pinMode(mode4Pin, INPUT_PULLUP);
   pinMode(LED_BUILTIN, OUTPUT);
 
-  // Get EEPROM memory
-  initLastState();
-
   // WiFi
   WiFi.disconnect();
-  delay(100);
+  delay(25);
   if (WiFi.softAP(APSSID, APPSK))
   {
     debug("\n[WiFi] AP started! IP address: ");
@@ -228,6 +212,8 @@ void loop()
 
   readInputs();
 
+  interpretInputs();
+
   mqttAliveMessage();
 }
 
@@ -245,42 +231,72 @@ void readInputs()
   if (!digitalRead(mode1Pin) && digitalRead(mode2Pin) && digitalRead(mode3Pin) && digitalRead(mode4Pin) && selectedMode != 1)
   {
     // Mode 1 - All off
-    debugln("[INPUT] Mode 1 was selected!");
-    apiOverrideOff = true;
-    debugln("\n" + mqttPublisher(apiOvrOff_topic, "1"));
-    EEPROM.write(apiOverrideOffAdress, 1);
-    EEPROM.commit();
     selectedMode = 1;
+    modeChangeTime = millis();
   }
   else if (digitalRead(mode1Pin) && !digitalRead(mode2Pin) && digitalRead(mode3Pin) && digitalRead(mode4Pin) && selectedMode != 2)
   {
     // Mode 2 - Star on but listens to motor restriction - UGLW on with resting motor
-    debugln("[INPUT] Mode 2 was selected!");
-    apiOverrideOff = false;
-    if (selectedMode == 1)
-      debugln("\n" + mqttPublisher(apiOvrOff_topic, "0"));
-    else if (selectedMode == 3)
-      debugln("\n" + mqttPublisher(rainbow_topic, "0"));
-    EEPROM.write(apiOverrideOffAdress, 0);
-    EEPROM.commit();
     selectedMode = 2;
+    modeChangeTime = millis();
   }
   else if (digitalRead(mode1Pin) && digitalRead(mode2Pin) && !digitalRead(mode3Pin) && digitalRead(mode4Pin) && selectedMode != 3)
   {
     // Mode 3 - Star strict on - UGLW rainbow strict on
-    debugln("[INPUT] Mode 3 was selected!");
-    if (selectedMode == 4)
-      debugln("\n" + mqttPublisher(strobe_topic, "0"));
-    else if (selectedMode == 2)
-      debugln("\n" + mqttPublisher(rainbow_topic, "1"));
     selectedMode = 3;
+    modeChangeTime = millis();
   }
   else if (digitalRead(mode1Pin) && digitalRead(mode2Pin) && digitalRead(mode3Pin) && !digitalRead(mode4Pin) && selectedMode != 4)
   {
-    // Mode 4 - Strobe both strict on
-    debugln("[INPUT] Mode 4 was selected!");
-    debugln("\n" + mqttPublisher(strobe_topic, "1"));
     selectedMode = 4;
+    modeChangeTime = millis();
+  }
+}
+
+void interpretInputs()
+{
+  if (selectedModeBefore != selectedMode && millis() > (modeChangeTime + modeChangeTimeThres))
+  {
+    selectedModeBefore = selectedMode;
+    debugln("\n" + mqttPublisher(fxmode_topic, String(selectedMode)));
+    switch (selectedMode)
+    {
+    case 1:
+      // Mode 1 - All off
+      debug("[INPUT] Mode 1 was selected!");
+      break;
+
+    case 2:
+      // Mode 2 - Star on but listens to motor restriction - UGLW on with resting motor
+      debug("[INPUT] Mode 2 was selected!");
+      break;
+
+    case 3:
+      debug("[INPUT] Mode 3 was selected!");
+      break;
+
+    case 4:
+      // Mode 4 - Strobe both strict on
+      debug("[INPUT] Mode 4 was selected!");
+      break;
+
+    default:
+      break;
+    }
+
+    // Decide to set or reset APIOvrOff
+    if (selectedMode == 1)
+    {
+      debugln(" - Emergeny on!");
+      debugln("\n" + mqttPublisher(apiOvrOff_topic, "1"));
+      apiOverrideOff = true;
+    }
+    else
+    {
+      debugln(" - Emergeny off!");
+      debugln("\n" + mqttPublisher(apiOvrOff_topic, "0"));
+      apiOverrideOff = false;
+    }
   }
 }
 
@@ -392,36 +408,6 @@ void ledBlinkSuccess()
   }
 }
 
-// EEPROM
-void initLastState()
-{
-  debugln("\n[EEPROM] Starting data extratction!");
-
-  // API Override Lights Off
-  int apiOverrideOffcontent = int(EEPROM.read(apiOverrideOffAdress));
-
-  debugln("[EEPROM] API Override Lights Off: " + String(apiOverrideOffcontent));
-
-  if (apiOverrideOffcontent == 1)
-  {
-    apiOverrideOff = true;
-  }
-  else if (apiOverrideOffcontent == 0)
-  {
-    apiOverrideOff = false;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM Reading] EEPROM Reading no valid option - Setting: API Override Lights Off");
-    EEPROM.write(apiOverrideOffAdress, 1); // then write override to turn lights off
-    apiOverrideOff = true;
-  }
-
-  EEPROM.commit();
-
-  debugln("[EEPROM] Extraction completed!");
-}
-
 // MQTT
 void mqttAliveMessage()
 {
@@ -433,7 +419,7 @@ void mqttAliveMessage()
     delay(50);
   }
 
-  if (millis() > (yourlastAveMsg + aveMsgTimeout) && hostWasConnected) //RX
+  if (millis() > (yourlastAveMsg + aveMsgTimeout) && hostWasConnected) // RX
   {
     yourlastAveMsg = millis();
     debugln("\n[Timeout-WD] Host MQTT Client timed out!");
