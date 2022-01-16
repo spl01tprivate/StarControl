@@ -120,10 +120,6 @@
 #define relaisTFLRPin 19 // D4
 #define relaisStarPin 33 // D0
 
-// WS2812 LEDs
-#define LED_PIN 23 // LED Digital Output
-#define LED_COUNT 114
-
 // Fade-Pause Timings
 #define fadePauseFast 1
 #define fadePauseNormal 4
@@ -152,15 +148,6 @@
 #define starhost_avemsg "host_ave"
 
 //***** VARIABLES & OBJECTS *****
-// WiFi Variables
-const char *ssid = APSSID;
-const char *password = APPSK;
-
-// WiFi Config1
-IPAddress local_IP = IPAddress(192, 168, 4, 10);
-IPAddress gateway = IPAddress(192, 168, 4, 10);
-IPAddress subnet = IPAddress(255, 255, 255, 0);
-
 // Input State Variables
 bool tflBool = false;
 bool kl15Bool = false;
@@ -220,9 +207,15 @@ bool tflISRpwmDetected = false;
 unsigned long tflISRriseStart = 0;
 bool tflISRriseStartBool = true;
 
-// API
-bool apiOverrideOff;       // Stores whether API call was received to turn lights off
-int outputParamsBefore[6]; // Stores previous states of analog / digital outputs of relais and leds
+void IRAM_ATTR tflISR()
+{
+  portENTER_CRITICAL(&sync);
+  if (digitalRead(tflPin))
+    tflISRrisingState = 1;
+  else
+    tflISRfallingState = 1;
+  portEXIT_CRITICAL(&sync);
+}
 
 // LED Serial
 HardwareSerial ledSerial(2);
@@ -232,11 +225,14 @@ String lastSerialMsg = "";
 bool serialClientConnection = false;
 bool serialClientInitConnection = false;
 
-// MQTT - V1.7
+// MQTT Client - V1.7
 AsyncMqttClient mqttClient;
 #define MQTT_HOST IPAddress(192, 168, 4, 1)
 #define MQTT_PORT 1883
-// Emergency Timeout
+
+// API Emergency Mode
+bool apiOverrideOff;       // Stores whether API call was received to turn lights off
+int outputParamsBefore[6]; // Stores previous states of analog / digital outputs of relais and leds
 unsigned long myLastAveMsg = 0;
 const unsigned int aveMsgIntervall = 2500;
 unsigned long yourlastAveMsg = 0; // stores when last alive msg was received
@@ -266,29 +262,6 @@ unsigned int led_mode_before = 0;
 unsigned int led_brtns_before = 0;
 unsigned int favoriteMode;
 
-// Emergency Timeout
-const unsigned int aliveMsgTimeout = 7500;
-
-// Task Handler (Multithreading)
-/*void task1_handlers(void *pvParameters)
-{
-  while (true)
-  {
-    vTaskDelay(10);
-  }
-}*/
-
-// ISR TFL
-void IRAM_ATTR tflISR()
-{
-  portENTER_CRITICAL(&sync);
-  if (digitalRead(tflPin))
-    tflISRrisingState = 1;
-  else
-    tflISRfallingState = 1;
-  portEXIT_CRITICAL(&sync);
-}
-
 // Battery Voltage
 unsigned long lastADCVal = 0;
 const unsigned int batVoltSamples = 40;
@@ -302,6 +275,15 @@ float batVoltOffset;
 bool batteryEmergency = false;
 float batteryThreshold;
 const float motorVoltOffset = 0.55;
+
+// Task Handler (Multithreading)
+/*void task1_handlers(void *pvParameters)
+{
+  while (true)
+  {
+    vTaskDelay(10);
+  }
+}*/
 
 //***** PROTOTYPES *****
 void handlers();
@@ -1591,7 +1573,7 @@ unsigned int readSpeedEEPROM()
   return key;
 }
 
-//*** AsyncWebServer ***
+// AsyncWebServer
 String processor(const String &var)
 {
   if (var == "STARSTATETEXT")

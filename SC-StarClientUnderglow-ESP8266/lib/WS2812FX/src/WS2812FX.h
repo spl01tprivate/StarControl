@@ -51,7 +51,7 @@
 
 #if defined(ESP8266) || defined(ESP32)
   //#pragma message("Compiling for ESP")
-  #define SPEED_MIN (uint16_t)1
+  #define SPEED_MIN (uint16_t)2
 #else
   //#pragma message("Compiling for Arduino")
   #define SPEED_MIN (uint16_t)10

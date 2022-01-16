@@ -119,6 +119,9 @@ void setup()
     // IOs
     pinMode(LED_BUILTIN, OUTPUT);
 
+    // Get EEPROM memory
+    initLastState();
+
     // LEDs
     leds.init();
     leds.setBrightness(led_brtns);
@@ -127,16 +130,8 @@ void setup()
     leds.setColor(led_color);
     leds.start();
 
-    // Get EEPROM memory
-    initLastState();
-
     // Communication Config
     checkSerial();
-
-    led_brtns = 255;
-    led_speed = 100;
-    leds.setBrightness(led_brtns);
-    leds.setSpeed(led_speed);
 
     debugln("\n[StarControl-Client] Initialization completed...starting programm loop!\n");
 }
