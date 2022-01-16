@@ -195,7 +195,7 @@ void setup()
 
   // MQTT
   broker.init();
-  broker.subscribe("#");
+  broker.subscribe(starhost_avemsg);
   debug("[MQTT] Succesfully started MQTT-Broker (IP: ");
   debug(WiFi.softAPIP());
   debugln(")");
