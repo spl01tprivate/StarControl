@@ -73,7 +73,7 @@ IPAddress subnet = IPAddress(255, 255, 255, 0);
 unsigned int selectedMode = -1;
 unsigned int selectedModeBefore = -1;
 unsigned long modeChangeTime = 0;
-const unsigned long modeChangeTimeThres = 100;
+const unsigned long modeChangeTimeThres = 350;
 
 bool apiOverrideOff;
 
@@ -255,6 +255,7 @@ void readInputs()
 
 void interpretInputs()
 {
+  // Added some delay between deciding and transmitting which mode is selected to prevent quick and dirty switches from one mode to another -> can be conflicting with WS2812FX and also does not look good
   if (selectedModeBefore != selectedMode && millis() > (modeChangeTime + modeChangeTimeThres))
   {
     selectedModeBefore = selectedMode;
