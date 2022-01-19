@@ -104,20 +104,27 @@
 #define batVoltThresAdress 18
 #define batVoltOffsetAdress 22
 #define favoriteModeAdress 26
+#define favoriteColorAdress1 27
+#define favoriteColorAdress2 28
+#define favoriteColorAdress3 29
+#define favoriteBrtnsAdress 30
+#define favoriteSpeedAdress1 31
+#define favoriteSpeedAdress2 32
+#define uglwTFLRestrictionAdress 33
 
 // Inputs
-#define tflPin 14         // D5 - Tagfahrlicht             - Type: PWM
-#define kl15Pin 35        // D6 - ZST 2                    - Type: Digital
-#define kl50Pin 36        // D7 - Starter mit Impuls       - Type: Digital
-#define batVoltPin 34     // xx - Battery Voltage          - Type: ADC Input
+#define tflPin 14     // D5 - Tagfahrlicht             - Type: PWM
+#define kl15Pin 35    // D6 - ZST 2                    - Type: Digital
+#define kl50Pin 36    // D7 - Starter mit Impuls       - Type: Digital
+#define batVoltPin 34 // xx - Battery Voltage          - Type: ADC Input
 
 // Outputs
-#define tflLPin 25        // D1 - TFL Links MOSFET (Weiß)  - Type: PWM
-#define tflRPin 26        // D2 - TFL Rechts MOSFET (Blau) - Type: PWM
-#define starPin 32        // D8 - Star MOSFET (Lila)       - Type: PWM
-#define relaisTFLLPin 18  // D3 - TFL Links Relais         - Type: Digital
-#define relaisTFLRPin 19  // D4 - TFL Rechts Relais        - Type: Digital
-#define relaisStarPin 33  // D0 - Star Relais              - Type: Digital
+#define tflLPin 25       // D1 - TFL Links MOSFET (Weiß)  - Type: PWM
+#define tflRPin 26       // D2 - TFL Rechts MOSFET (Blau) - Type: PWM
+#define starPin 32       // D8 - Star MOSFET (Lila)       - Type: PWM
+#define relaisTFLLPin 18 // D3 - TFL Links Relais         - Type: Digital
+#define relaisTFLRPin 19 // D4 - TFL Rechts Relais        - Type: Digital
+#define relaisStarPin 33 // D0 - Star Relais              - Type: Digital
 
 // Fade-Pause Timings
 #define fadePauseFast 1
@@ -246,9 +253,9 @@ AsyncWebServer server(80);
 const char *PARAM_INPUT_1 = "id";
 const char *PARAM_INPUT_2 = "state";
 const char *PARAM_INPUT_3 = "value";
-bool buttonStates[4] = {false, false, false, false}; // 0 - Strobe, 1 - Fade, 2 - MREST Star, 3 - MREST UGLW
-unsigned int sliderValues[6] = {3, 3, 2, 2, 0, 0};   // 0 - Star, 1 - TFL, 2 - Star Fade Time, 3 - TFL Fade Time, 4 - UGLW Brtns, 5 - UGLW Speed
-float sliderValuesFloat[2] = {12.0, 0};              // 0 - BatVoltThreshold, 1 - BatVoltOffset
+bool buttonStates[5] = {false, false, false, false, false}; // 0 - Strobe, 1 - Fade, 2 - MREST Star, 3 - MREST UGLW, 4 - TFLREST UGLW
+unsigned int sliderValues[6] = {3, 3, 2, 2, 0, 0};          // 0 - Star, 1 - TFL, 2 - Star Fade Time, 3 - TFL Fade Time, 4 - UGLW Brtns, 5 - UGLW Speed
+float sliderValuesFloat[2] = {12.0, 0};                     // 0 - BatVoltThreshold, 1 - BatVoltOffset
 
 // WS2812 LEDs
 unsigned int led_mode = 0;
@@ -257,13 +264,18 @@ unsigned int led_brtns = 0;
 unsigned int led_speed = 10000;
 bool uglwMotorRestriction = true;
 bool uglwMotorBlock = false;
-bool uglwMotorBlockPrecaution = false;
+bool uglwMotorBlockSent = false;
+bool uglwTFLRestriction = true;
+bool uglwTFLRestActive = false;
 unsigned int selectedMode;
-unsigned int selectedModeBef = 3;
+unsigned int selectedModeBef = 2;
 unsigned int selectedModeBefStrobe;
 unsigned int led_mode_before = 0;
 unsigned int led_brtns_before = 0;
 unsigned int favoriteMode;
+unsigned int favoriteColor;
+unsigned int favoriteBrtns;
+unsigned int favoriteSpeed;
 
 // Battery Voltage
 unsigned long lastADCVal = 0;
@@ -279,6 +291,12 @@ bool batteryEmergency = false;
 float batteryThreshold;
 const float motorVoltOffset = -0.5;
 
+// Startup
+bool checkedInputs = false;
+bool starStarted = false;
+bool tflStarted = false;
+bool uglwStarted = false;
+
 // Task Handler (Multithreading)
 /*void task1_handlers(void *pvParameters)
 {
@@ -291,10 +309,10 @@ const float motorVoltOffset = -0.5;
 //***** PROTOTYPES *****
 void handlers();
 void initLastState();
-void writeColorEEPROM(unsigned int);
-unsigned int readColorEEPROM();
-void writeSpeedEEPROM(unsigned int);
-unsigned int readSpeedEEPROM();
+void writeColorEEPROM(unsigned int, bool);
+unsigned int readColorEEPROM(bool);
+void writeSpeedEEPROM(unsigned int, bool);
+unsigned int readSpeedEEPROM(bool);
 void httpHandler();
 void readInputs();
 void batteryMonitoring();
@@ -343,6 +361,7 @@ void mqttAliveMessage();
 void setEmergencyMode();
 void resetEmergencyMode();
 void uglwWriteOutput();
+void uglwTFLRestrictionHandler();
 void serialLEDHandler();
 void serialAliveMsg();
 
@@ -356,7 +375,7 @@ void setup()
   }
   ledSerial.begin(115200);
   ledSerial.setTimeout(3);
-  EEPROM.begin(27);
+  EEPROM.begin(34);
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
@@ -410,17 +429,21 @@ void setup()
 //***** LOOP *****
 void loop()
 {
-  readInputs();
+  do
+  {
+    readInputs();
 
-  interpretInputs();
+    interpretInputs();
 
-  writeOutput();
+    writeOutput();
+
+    serialLEDHandler();
+
+    uglwWriteOutput();
+
+  } while (!starStarted && !tflStarted && !uglwStarted);
 
   mqttAliveMessage();
-
-  serialLEDHandler();
-
-  uglwWriteOutput();
 
   checkMQTT();
 
@@ -491,7 +514,10 @@ void interpretInputs()
     batVoltOffset -= motorVoltOffset;
   }
 
-  tflISRInterpret(); // V1.4 - TFL ISR checking for input signal type
+  do
+  {
+    tflISRInterpret(); // V1.4 - TFL ISR checking for input signal type
+  } while (!checkedInputs);
 
   if (batteryVoltage <= batteryThreshold && !batteryEmergency) // Battery-Management
   {
@@ -536,7 +562,7 @@ void writeOutput()
 
 void automaticMode()
 {
-  if ((!motorRunning && tflBool) || (motorRunning && !starMotorRestriction) || selectedMode == 3)
+  if ((!motorRunning && tflBool) || (motorRunning && !starMotorRestriction) || selectedModeBef == 3)
     starOn();
   else
     starOff();
@@ -563,6 +589,7 @@ void starOn()
       ledcWrite(0, 1023);
       starRelais(true);
       debugln("[Star] Turned on!");
+      starStarted = true;
     }
   }
 }
@@ -580,6 +607,7 @@ void starOff()
       ledcWrite(0, 0);
       starRelais(false);
       debugln("[Star] Turned off!");
+      starStarted = true;
     }
   }
 }
@@ -602,6 +630,7 @@ void fadeIn()
         ledcWrite(0, fadeStep);
         fadeInProcess = false;
         debugln("[Star] Finished Up-Fade!");
+        starStarted = true;
       }
       // debug("[Star] Step Up: ");
       // debugln(fadeStep);
@@ -635,6 +664,7 @@ void fadeOut()
         starRelais(false);
         fadeOutProcess = false;
         debugln("[Star] Finished Down-Fade!");
+        starStarted = true;
       }
       // debug("[Star] Step Down: ");
       // debugln(fadeStep);
@@ -717,6 +747,7 @@ void tflOn()
       }
       tflRelais(true);
       debugln("[TFL] Turned on!");
+      tflStarted = true;
     }
   }
   else if ((!motorRunning && (ledcRead(1) > tflDimTreshold)) || (!motorRunning && (ledcRead(2) > tflDimTreshold)))
@@ -744,6 +775,7 @@ void tflOn()
               tflRelais(true);
               fadeOutProcessTFL = false;
               debugln("[TFL] Motor stop - dimmed!");
+              tflStarted = true;
             }
             // debug("[TFL] Step Down: ");
             // debugln(fadeStepTFL);
@@ -765,6 +797,7 @@ void tflOn()
             tflRelais(true);
             fadeOutProcessTFL = false;
             debugln("[TFL] Motor stop - dimmed!");
+            tflStarted = true;
           }
         }
       }
@@ -774,6 +807,7 @@ void tflOn()
         ledcWrite(2, tflDimTreshold);
         tflRelais(true);
         debugln("[TFL] Motor stop - dimmed!");
+        tflStarted = true;
       }
     }
   }
@@ -793,6 +827,7 @@ void tflOff()
       ledcWrite(2, 0);
       tflRelais(false);
       debugln("[TFL] Turned off!");
+      tflStarted = true;
     }
   }
 }
@@ -817,6 +852,7 @@ void fadeInTFL()
         ledcWrite(2, fadeStepTFL);
         fadeInProcessTFL = false;
         debugln("[TFL] Finished Up-Fade (full)!");
+        tflStarted = true;
       }
       else if (fadeStepTFL >= (tflDimTreshold - 1) && !motorRunning)
       {
@@ -825,6 +861,7 @@ void fadeInTFL()
         ledcWrite(2, fadeStepTFL);
         fadeInProcessTFL = false;
         debugln("[TFL] Finished Up-Fade (dimmed)!");
+        tflStarted = true;
       }
       // debug("[TFL] Step Up: ");
       // debugln(fadeStepTFL);
@@ -860,6 +897,7 @@ void fadeOutTFL()
         tflRelais(false);
         fadeOutProcessTFL = false;
         debugln("[TFL] Finished Down-Fade!");
+        tflStarted = true;
       }
       // debug("[TFL] Step Down: ");
       // debugln(fadeStepTFL);
@@ -890,6 +928,9 @@ void strobeFct()
   if (!strobeActive)
   {
     strobeStart(true);
+    starStarted = true;
+    tflStarted = true;
+    debugln("[Strobe] Starting...");
   }
   // Strobe Function
   if (millis() >= strobeMillis + strobePause)
@@ -933,10 +974,12 @@ void strobeStart(bool execMQTT)
 
   if (execMQTT)
   {
+    uglwStarted = true;
     selectedModeBefStrobe = selectedMode;
     char charMode = '4';
     char *payload = &charMode;
     mqttClient.publish(fxmode_topic, 0, false, payload);
+    debugln("\n[STROBE] Current selected Mode: " + String(selectedModeBefStrobe));
   }
 
   strobeDataBefore[0] = ledcRead(0);
@@ -968,6 +1011,7 @@ void strobeStop(bool execMQTT)
     else if (selectedModeBefStrobe == 4)
       *payload = '4';
 
+    debugln("\n[STROBE] Loading before selected Mode: " + String(*payload));
     mqttClient.publish(fxmode_topic, 0, false, payload);
   }
 
@@ -1044,7 +1088,7 @@ void apiOverrideLights()
   ledcWrite(2, 0);
 }
 
-// V1.4 - Interupt Service Routine for TFL Input Signal from car
+// ISR for TFL Input Signal from car - V1.4
 void tflISRInterpret()
 {
   // Edge event handlers
@@ -1082,6 +1126,7 @@ void tflISRInterpret()
       tflBool = true;
       tflISRpwmDetected = true;
       ISRln("\n[ISR] TFL PWM signal detected!\n");
+      checkedInputs = true;
     }
     tflISRrisingCounterBefore = tflISRrisingCounter;
   }
@@ -1098,6 +1143,7 @@ void tflISRInterpret()
         tflISRcontiDetected = true;
         tflISRpwmDetected = false;
         ISRln("\n[ISR] Continuous TFL HIGH detected!\n");
+        checkedInputs = true;
       }
       else
         ISRln("[ISR] tflISRriseStart: " + String(tflISRriseStart) + " " + String(tflISRrisingCounter));
@@ -1109,6 +1155,7 @@ void tflISRInterpret()
       tflISRpwmDetected = false;
       tflISRriseStartBool = true;
       ISRln("\n[ISR] Continuous TFL LOW detected!\n");
+      checkedInputs = true;
     }
   }
 }
@@ -1272,7 +1319,7 @@ void initLastState()
   // TFL Fade Pause
   int tflfpContent = int(EEPROM.read(tflFadePauseAdress)); // read EEPROM
 
-  debugln("[EEPROM] Star Fade-Pause: " + String(tflfpContent));
+  debugln("[EEPROM] TFL Fade-Pause: " + String(tflfpContent));
 
   logicState = true;
 
@@ -1356,11 +1403,13 @@ void initLastState()
   if (apiOverrideContent == 0)
   {
     apiOverrideOff = false;
+    emergency = false;
     debugln(" - [EMERGENCY] Mode deactivated!");
   }
   else if (apiOverrideContent == 1)
   {
     apiOverrideOff = true;
+    emergency = true;
     debugln(" - [EMERGENCY] Mode activated!");
   }
   else // if no logic state
@@ -1368,6 +1417,7 @@ void initLastState()
     debugln("[EEPROM] Reading failed - API Override Lights - [EMERGENCY] Mode activated!");
     EEPROM.write(apiOverrideOffAdress, 1); // then set to 1 default - lights off
     apiOverrideOff = true;
+    emergency = true;
   }
 
   // LEDs Mode
@@ -1387,7 +1437,7 @@ void initLastState()
   }
 
   // LEDs Color
-  unsigned int colorContent = readColorEEPROM();
+  unsigned int colorContent = readColorEEPROM(false);
 
   debugln("[EEPROM] LEDs - Color: " + String(colorContent));
 
@@ -1423,7 +1473,7 @@ void initLastState()
   sliderValues[4] = led_brtns;
 
   // LEDs Speed
-  unsigned int speedContent = readSpeedEEPROM();
+  unsigned int speedContent = readSpeedEEPROM(false);
 
   debugln("[EEPROM] LEDs - Speed: " + String(speedContent));
 
@@ -1435,7 +1485,7 @@ void initLastState()
   {
     debugln("[EEPROM] Reading was no valid option: LEDs - Speed - Out of range (0x0-0xFFFF)!");
     led_speed = 10000;
-    writeSpeedEEPROM(led_speed);
+    writeSpeedEEPROM(led_speed, false);
   }
 
   sliderValues[5] = led_speed;
@@ -1501,7 +1551,7 @@ void initLastState()
   sliderValuesFloat[1] = batVoltOffset;
 
   // Favorite UGLW Mode
-  int favMode = EEPROM.read(favoriteModeAdress); // read EEPROM
+  int favMode = EEPROM.read(favoriteModeAdress);
 
   debugln("[EEPROM] Favorite UGLW Mode: " + String(favMode));
 
@@ -1511,10 +1561,76 @@ void initLastState()
   }
   else // if no logic state
   {
-    debugln("[EEPROM] Reading failed - Favorite UGLW Mode");
+    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Mode - Out of range (0-56)!");
     EEPROM.write(favoriteModeAdress, 0);
     favoriteMode = 0;
   }
+
+  // Favorite UGLW Color
+  unsigned int favColor = readColorEEPROM(true);
+
+  debugln("[EEPROM] Favorite UGLW Color: " + String(favColor));
+
+  if (favColor >= 0 && favColor <= 16777215)
+  {
+    favoriteColor = favColor;
+  }
+  else // if no logic state
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color - Out of range (0x0-0xFFFFFF)!");
+    writeColorEEPROM(0, true);
+    favoriteColor = 0;
+  }
+
+  // Favorite UGLW Brtns
+  int favBrtns = EEPROM.read(favoriteBrtnsAdress);
+
+  debugln("[EEPROM] Favorite UGLW Brightness: " + String(favBrtns));
+
+  if (favBrtns >= 0 && favBrtns <= 255)
+  {
+    favoriteBrtns = favBrtns;
+  }
+  else // if no logic state
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Brightness - Out of range (0-255)!");
+    EEPROM.write(favoriteBrtnsAdress, 0);
+    favoriteBrtns = 0;
+  }
+
+  // Favorite UGLW Speed
+  unsigned int favSpeed = readSpeedEEPROM(true);
+
+  debugln("[EEPROM] Favorite UGLW Brightness: " + String(favSpeed));
+
+  if (favSpeed >= 0 && favSpeed <= 65535)
+  {
+    favoriteSpeed = favSpeed;
+  }
+  else
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Speed - Out of range (0x0-0xFFFF)!");
+    favoriteSpeed = 10000;
+    writeSpeedEEPROM(favoriteSpeed, true);
+  }
+
+  // UGLW TFL-REST.
+  int uglwTFL = EEPROM.read(uglwTFLRestrictionAdress); // read EEPROM
+
+  debugln("[EEPROM] UGLW TFL Restriction: " + String(uglwTFL));
+
+  if (uglwTFL == 1)
+    uglwTFLRestriction = true;
+  else if (uglwTFL == 0)
+    uglwTFLRestriction = false;
+  else // if no logic state
+  {
+    debugln("[EEPROM] Reading failed - UGLW TFL Restriction");
+    EEPROM.write(uglwTFLRestrictionAdress, 1);
+    uglwTFLRestriction = true;
+  }
+
+  buttonStates[4] = uglwTFLRestriction;
 
   EEPROM.commit();
 
@@ -1534,26 +1650,26 @@ void writeColorEEPROM(unsigned int key, bool favorite)
   debugln("MIDBIT: " + String(midbit, BIN));
   debugln("HIGHBIT: " + String(highbit, BIN));*/
 
-  EEPROM.write(color1Adress, lowbit);  // Blue Bit
-  EEPROM.write(color2Adress, midbit);  // Green Bit
-  EEPROM.write(color3Adress, highbit); // Red Bit
+  EEPROM.write(favorite ? favoriteColorAdress1 : color1Adress, lowbit);  // Blue Bit
+  EEPROM.write(favorite ? favoriteColorAdress2 : color2Adress, midbit);  // Green Bit
+  EEPROM.write(favorite ? favoriteColorAdress3 : color3Adress, highbit); // Red Bit
   EEPROM.commit();
 }
 
-unsigned int readColorEEPROM()
+unsigned int readColorEEPROM(bool favorite)
 {
-  int key = EEPROM.read(color3Adress) << 8;     // Red Bit
-  key = (key + EEPROM.read(color2Adress)) << 8; // Green Bit
-  key += EEPROM.read(color1Adress);             // Blue Bit
+  int key = EEPROM.read(favorite ? favoriteColorAdress3 : color3Adress) << 8;     // Red Bit
+  key = (key + EEPROM.read(favorite ? favoriteColorAdress2 : color2Adress)) << 8; // Green Bit
+  key += EEPROM.read(favorite ? favoriteColorAdress1 : color1Adress);             // Blue Bit
 
   /*debugln("\nKEY DEC: " + String(key));
   debugln("KEY HEX: " + String(key, HEX));
   debugln("KEY BIN: " + String(key, BIN));*/
 
-  return key;
+  return (unsigned int)key;
 }
 
-void writeSpeedEEPROM(unsigned int key)
+void writeSpeedEEPROM(unsigned int key, bool favorite)
 {
   int lowbit = key & 255;
   int highbit = (key >> 8) & 255;
@@ -1564,21 +1680,21 @@ void writeSpeedEEPROM(unsigned int key)
   debugln("LOWBIT: " + String(lowbit, BIN));
   debugln("HIGHBIT: " + String(highbit, BIN));*/
 
-  EEPROM.write(speed1Adress, lowbit);
-  EEPROM.write(speed2Adress, highbit);
+  EEPROM.write(favorite ? favoriteSpeedAdress1 : speed1Adress, lowbit);
+  EEPROM.write(favorite ? favoriteSpeedAdress2 : speed2Adress, highbit);
   EEPROM.commit();
 }
 
-unsigned int readSpeedEEPROM()
+unsigned int readSpeedEEPROM(bool favorite)
 {
-  int key = EEPROM.read(speed2Adress) << 8;
-  key += EEPROM.read(speed1Adress);
+  int key = EEPROM.read(favorite ? favoriteSpeedAdress2 : speed2Adress) << 8;
+  key += EEPROM.read(favorite ? favoriteSpeedAdress1 : speed1Adress);
 
   /*debugln("\nKEY DEC: " + String(key));
   debugln("KEY HEX: " + String(key, HEX));
   debugln("KEY BIN: " + String(key, BIN));*/
 
-  return key;
+  return (unsigned int)key;
 }
 
 // AsyncWebServer
@@ -1608,6 +1724,12 @@ String processor(const String &var)
   {
     String buttons = "";
     buttons += "<h4>Motor Restriction UGLW</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button3\" " + outputState(3) + "><span class=\"btnslider\"></span></label>";
+    return buttons;
+  }
+  if (var == "BUTTONPLACEHOLDER3")
+  {
+    String buttons = "";
+    buttons += "<h4>TFL Restriction UGLW</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button4\" " + outputState(4) + "><span class=\"btnslider\"></span></label>";
     return buttons;
   }
   if (var == "SLIDERTEXT0")
@@ -1803,7 +1925,12 @@ void assignServerHandlers()
                 if (sliderID.toInt() == 6 || sliderID.toInt() == 7)
                   sliderValuesFloat[sliderID.toInt() - 6] = sliderValue.toFloat();
                 else if (sliderID.toInt() == 10 && sliderValue.toInt() >= 0 && sliderValue.toInt() <= 56)
+                {
                   favoriteMode = sliderValue.toInt();
+                  favoriteColor = led_color;
+                  favoriteBrtns = led_brtns;
+                  favoriteSpeed = led_speed;
+                }
                 else
                   sliderValues[sliderID.toInt()] = sliderValue.toInt(); //update array
               }
@@ -2117,6 +2244,12 @@ void interpretSlider(int id)
   {
     debugln("[HTTP] Favorite UGLW Mode " + String(favoriteMode) + " was selected!");
     EEPROM.write(favoriteModeAdress, favoriteMode);
+    debugln("[HTTP] Favorite UGLW Color " + String(favoriteColor) + " was selected!");
+    writeColorEEPROM(favoriteColor, true);
+    debugln("[HTTP] Favorite UGLW Brightness " + String(favoriteBrtns) + " was selected!");
+    EEPROM.write(favoriteBrtnsAdress, favoriteBrtns);
+    debugln("[HTTP] Favorite UGLW Speed " + String(favoriteSpeed) + " was selected!");
+    writeSpeedEEPROM(favoriteSpeed, true);
     EEPROM.commit();
   }
 }
@@ -2130,15 +2263,14 @@ void interpretButton(int id)
       debugln("[HTTP] Strobe: On");
       strobe = true;
       EEPROM.write(strobeAdress, 1);
-      EEPROM.commit();
     }
     else
     {
       debugln("[HTTP] Strobe: Off");
       strobe = false;
       EEPROM.write(strobeAdress, 0);
-      EEPROM.commit();
     }
+    EEPROM.commit();
   }
   if (id == 1)
   {
@@ -2148,7 +2280,6 @@ void interpretButton(int id)
       fadeMode = true;
       fadeReset();
       EEPROM.write(fademodusAdress, 1);
-      EEPROM.commit();
     }
     else
     {
@@ -2156,8 +2287,8 @@ void interpretButton(int id)
       fadeMode = false;
       fadeReset();
       EEPROM.write(fademodusAdress, 0);
-      EEPROM.commit();
     }
+    EEPROM.commit();
   }
   if (id == 2)
   {
@@ -2166,15 +2297,14 @@ void interpretButton(int id)
       debugln("[HTTP] Star Motor-Rest.: On");
       starMotorRestriction = true;
       EEPROM.write(starMotorRestrictionAdress, 1);
-      EEPROM.commit();
     }
     else
     {
       debugln("[HTTP] Star Motor-Rest.: Off");
       starMotorRestriction = false;
       EEPROM.write(starMotorRestrictionAdress, 0);
-      EEPROM.commit();
     }
+    EEPROM.commit();
   }
   if (id == 3)
   {
@@ -2183,15 +2313,30 @@ void interpretButton(int id)
       debugln("[HTTP] UGLW Motor-Rest.: On");
       uglwMotorRestriction = true;
       EEPROM.write(uglwMotorRestrictionAdress, 1);
-      EEPROM.commit();
     }
     else
     {
       debugln("[HTTP] UGLW Motor-Rest.: Off");
       uglwMotorRestriction = false;
       EEPROM.write(uglwMotorRestrictionAdress, 0);
-      EEPROM.commit();
     }
+    EEPROM.commit();
+  }
+  if (id == 4)
+  {
+    if (buttonStates[id])
+    {
+      debugln("[HTTP] UGLW TFL-Rest.: On");
+      uglwTFLRestriction = true;
+      EEPROM.write(uglwTFLRestrictionAdress, 1);
+    }
+    else
+    {
+      debugln("[HTTP] UGLW TFL-Rest.: Off");
+      uglwTFLRestriction = false;
+      EEPROM.write(uglwTFLRestrictionAdress, 0);
+    }
+    EEPROM.commit();
   }
 }
 
@@ -2397,7 +2542,7 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite = fa
     {
       debugln("\n[LED] Color was changed!");
       led_color = payload;
-      writeColorEEPROM(payload);
+      writeColorEEPROM(payload, false);
       if (selectedMode == 1 || selectedMode == 2)
         ledSerial.print("color!" + String(payload) + "$");
     }
@@ -2426,14 +2571,14 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite = fa
     {
       debugln("\n[LED] Speed was changed!");
       led_speed = sliderValues[5];
-      writeSpeedEEPROM(sliderValues[5]);
+      writeSpeedEEPROM(sliderValues[5], false);
       if (selectedMode == 1 || selectedMode == 2)
         ledSerial.print("speed!" + String(key) + "$");
     }
     else
       ledSerial.print("speed!" + String(key) + "$");
   }
-  else if (dropdown == 4 && key >= 0 && key <= 1)
+  else if (dropdown == 4 && key >= 0 && key <= 3)
   {
     ledSerial.print("motor!" + String(key) + "$");
     retval = "Motor-Restriction " + String(key);
@@ -2523,12 +2668,14 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
     switch (selectedMode)
     {
     case 1:
+      selectedMode = 1;
       if (selectedModeBef == 4)
         strobeStop(false);
       debugln("\n[MQTT] Subscribed topic - FX Mode Blackout");
       break;
 
     case 2:
+      selectedMode = 2;
       if (selectedModeBef == 4)
         strobeStop(false);
       if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
@@ -2538,45 +2685,69 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       uglw_sendValue(1, led_color);
       uglw_sendValue(0, led_mode);
       if (selectedModeBef == 2 || selectedModeBef == 3)
-        uglw_sendValue(5, 20); // transition duration 20ms * 100
+        uglw_sendValue(5, 5); // transition duration 5ms * 100
       else if (selectedModeBef == 4)
         uglw_sendValue(5, 999); // transition duration 0ms
       if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
         uglw_sendValue(5, 1); // finish data transmission
+      if (uglwMotorBlock && !uglwMotorBlockSent)
+      {
+        uglw_sendValue(4, 1U, true);
+        uglwMotorBlockSent = true;
+      }
       debugln("\n[MQTT] Subscribed topic - FX Mode HTML Ctrld");
       break;
 
     case 3:
+      selectedMode = 3;
       if (selectedModeBef == 4)
         strobeStop(false);
       if (selectedModeBef == 2 || selectedModeBef == 4)
         uglw_sendValue(5, 0); // init data transmission
-      uglw_sendValue(3, led_speed);
-      uglw_sendValue(2, led_brtns);
-      uglw_sendValue(1, led_color);
+      uglw_sendValue(3, favoriteSpeed);
+      uglw_sendValue(2, favoriteBrtns);
+      uglw_sendValue(1, favoriteColor);
       uglw_sendValue(0, favoriteMode);
       if (selectedModeBef == 2)
-        uglw_sendValue(5, 20); // transition duration 20ms * 100
+        uglw_sendValue(5, 5); // transition duration 5ms * 100
       else if (selectedModeBef == 4)
         uglw_sendValue(5, 999); // transition duration 0ms
+      if (uglwMotorBlock)
+      {
+        uglw_sendValue(4, 2U, true);
+        uglwMotorBlockSent = false;
+      }
       if (selectedModeBef == 2 || selectedModeBef == 4)
         uglw_sendValue(5, 1); // finish data transmission
       debugln("\n[MQTT] Subscribed topic - FX Mode Favorite");
       break;
 
     case 4:
+      selectedMode = 4;
       if (selectedModeBef == 2 || selectedModeBef == 3)
         uglw_sendValue(5, 0); // init data transmission
       uglw_sendValue(3, led_speed_strobe);
       uglw_sendValue(2, 255U);
       uglw_sendValue(1, 16777215);
       uglw_sendValue(0, led_mode_strobe);
-      if (selectedModeBef == 2)
-        uglw_sendValue(5, 999); // transition duration 20ms * 100
-      else if (selectedModeBef == 3)
-        uglw_sendValue(5, 999); // transition duration 0ms
       if (selectedModeBef == 2 || selectedModeBef == 3)
+      {
+        uglw_sendValue(5, 999); // transition duration 0ms
+        if (uglwMotorBlock)
+        {
+          uglw_sendValue(4, 2U, true);
+          uglwMotorBlockSent = false;
+        }
         uglw_sendValue(5, 1); // finish data transmission
+      }
+      else
+      {
+        if (uglwMotorBlock)
+        {
+          uglw_sendValue(4, 2U, true);
+          uglwMotorBlockSent = false;
+        }
+      }
 
       strobeStart(false);
 
@@ -2737,23 +2908,40 @@ void resetEmergencyMode()
 // Serial LED Handlers
 void uglwWriteOutput()
 {
-  if (uglwMotorRestriction && motorRunning && !uglwMotorBlock)
+  uglwTFLRestrictionHandler();
+  if (((uglwMotorRestriction && motorRunning) || uglwTFLRestActive) && !uglwMotorBlock)
   {
-    uglwMotorBlockPrecaution = true;
-    if (selectedMode == 1 || selectedMode == 2) // only transmit motor-blockage if motor-restricted modes are active
+    uglwMotorBlockSent = true;
+    if (selectedModeBef == 1 || selectedModeBef == 2) // only transmit motor-blockage if motor-restricted modes are active
     {
       uglwMotorBlock = true;
+      uglw_sendValue(5, 5);
       uglw_sendValue(4, 1U, true);
     }
   }
-  else if ((!uglwMotorRestriction || (uglwMotorRestriction && !motorRunning)) && uglwMotorBlock)
+  else if (((!uglwMotorRestriction || (uglwMotorRestriction && !motorRunning)) && !uglwTFLRestActive) && uglwMotorBlock)
   {
-    uglwMotorBlockPrecaution = false;
-    if (selectedMode == 1 || selectedMode == 2)
+    uglwMotorBlockSent = true;
+    if (selectedModeBef == 1 || selectedModeBef == 2)
     {
       uglwMotorBlock = false;
+      uglw_sendValue(5, 5);
       uglw_sendValue(4, 0U, true);
     }
+  }
+}
+
+void uglwTFLRestrictionHandler()
+{
+  if (uglwTFLRestriction && !tflBool && !uglwTFLRestActive)
+  {
+    uglwTFLRestActive = true;
+    debugln("\n[UGLW] TFL Rest active!");
+  }
+  else if ((!uglwTFLRestriction || (uglwTFLRestriction && tflBool)) && uglwTFLRestActive)
+  {
+    uglwTFLRestActive = false;
+    debugln("\n[UGLW] TFL Rest inactive!");
   }
 }
 
@@ -2771,7 +2959,7 @@ void serialLEDHandler()
         if (serialClientConnection || !serialClientInitConnection)
         {
           serialClientConnection = false;
-          debugln("[Serial] Client disconnected but online!");
+          debugln("\n[Serial] Initializing client communication!");
         }
         ledSerial.print("status!host-alive$");
         if (emergency)
@@ -2780,9 +2968,10 @@ void serialLEDHandler()
           lastSerialMsg = String(apiOvrOff_topic) + "!0$";
         delay(10);
         ledSerial.print(lastSerialMsg);
-        if (uglwMotorBlock)
+        uglwTFLRestrictionHandler();
+        if (uglwMotorBlock || uglwTFLRestActive)
           uglw_sendValue(4, 1U, true);
-        else
+        else if (!uglwMotorBlock && !uglwTFLRestActive)
           uglw_sendValue(4, 0U, true);
         debugln("[Serial] Message arrived - Topic: '" + topic + "' - Payload: '" + payload + "'\n");
       }
