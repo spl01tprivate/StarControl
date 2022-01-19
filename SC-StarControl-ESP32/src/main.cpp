@@ -106,19 +106,18 @@
 #define favoriteModeAdress 26
 
 // Inputs
-#define tflPin 39         // D5 - Tagfahrlicht
-#define kl15Pin 35        // D6 - ZST 2
-#define kl50Pin 36        // D7 - Starter mit Impuls
-#define tflAnalogTresh 10 // Treshold at which analog level tfl is recognized as on
-#define batVoltPin 32
+#define tflPin 14         // D5 - Tagfahrlicht             - Type: PWM
+#define kl15Pin 35        // D6 - ZST 2                    - Type: Digital
+#define kl50Pin 36        // D7 - Starter mit Impuls       - Type: Digital
+#define batVoltPin 34     // xx - Battery Voltage          - Type: ADC Input
 
 // Outputs
-#define tflLPin 25       // D1 - TFL Links Output (Weiß)
-#define tflRPin 26       // D2 - TFL Rechts Output (Blau)
-#define starPin 14       // D8 - Star Output (Lila)
-#define relaisTFLLPin 18 // D3
-#define relaisTFLRPin 19 // D4
-#define relaisStarPin 33 // D0
+#define tflLPin 25        // D1 - TFL Links MOSFET (Weiß)  - Type: PWM
+#define tflRPin 26        // D2 - TFL Rechts MOSFET (Blau) - Type: PWM
+#define starPin 32        // D8 - Star MOSFET (Lila)       - Type: PWM
+#define relaisTFLLPin 18  // D3 - TFL Links Relais         - Type: Digital
+#define relaisTFLRPin 19  // D4 - TFL Rechts Relais        - Type: Digital
+#define relaisStarPin 33  // D0 - Star Relais              - Type: Digital
 
 // Fade-Pause Timings
 #define fadePauseFast 1
@@ -128,6 +127,8 @@
 // Strobe Timings & Cycles
 #define strobePause 50
 #define strobeShortCycles 20
+#define led_mode_strobe 1
+#define led_speed_strobe 120
 
 // TFL dimmed treshold
 #define tflDimTreshold 512
@@ -140,8 +141,7 @@
 #define color_topic "color"
 #define brtns_topic "brtns"
 #define speed_topic "speed"
-#define strobe_topic "fxmode/strobe"
-#define rainbow_topic "fxmode/rainbow"
+#define fxmode_topic "fxmode"
 #define motor_topic "motor"
 
 #define emergency_avemsg "emeg_ave"
@@ -256,8 +256,11 @@ unsigned int led_color = 0;
 unsigned int led_brtns = 0;
 unsigned int led_speed = 10000;
 bool uglwMotorRestriction = true;
-bool uglwMotorBlock;
+bool uglwMotorBlock = false;
+bool uglwMotorBlockPrecaution = false;
 unsigned int selectedMode;
+unsigned int selectedModeBef = 3;
+unsigned int selectedModeBefStrobe;
 unsigned int led_mode_before = 0;
 unsigned int led_brtns_before = 0;
 unsigned int favoriteMode;
@@ -274,7 +277,7 @@ const float resistor2 = 47340;  // 47k
 float batVoltOffset;
 bool batteryEmergency = false;
 float batteryThreshold;
-const float motorVoltOffset = 0.55;
+const float motorVoltOffset = -0.5;
 
 // Task Handler (Multithreading)
 /*void task1_handlers(void *pvParameters)
@@ -313,8 +316,8 @@ void fadeInTFL();
 void fadeOutTFL();
 void fadeResetTFL();
 void strobeFct();
-void strobeStart();
-void strobeStop(unsigned int, unsigned int, unsigned int, unsigned int, unsigned int);
+void strobeStart(bool);
+void strobeStop(bool);
 void tflRelais(bool);
 void starRelais(bool);
 void saveOutputParams();
@@ -466,7 +469,7 @@ void batteryMonitoring()
         batteryVoltage += batteryVoltages[i];
       }
       batteryVoltage /= batVoltMeasurements; // Sum / batVoltSamples
-      //debugln("Battery Voltage: " + String(batteryVoltage));
+      // debugln("Battery Voltage: " + String(batteryVoltage));
       batVoltMeasurements = 0;
     }
   }
@@ -518,12 +521,7 @@ void writeOutput()
       // Stop Strobe and set old values
       if (!strobe && strobeActive && !strobeShort)
       {
-        unsigned int key;
-        if (uglwMotorBlock)
-          key = 1;
-        else
-          key = 0;
-        strobeStop(led_mode, led_color, key, led_brtns, led_speed);
+        strobeStop(true);
       }
 
       if (starMode)
@@ -747,8 +745,8 @@ void tflOn()
               fadeOutProcessTFL = false;
               debugln("[TFL] Motor stop - dimmed!");
             }
-            //debug("[TFL] Step Down: ");
-            //debugln(fadeStepTFL);
+            // debug("[TFL] Step Down: ");
+            // debugln(fadeStepTFL);
           }
         }
         else
@@ -828,8 +826,8 @@ void fadeInTFL()
         fadeInProcessTFL = false;
         debugln("[TFL] Finished Up-Fade (dimmed)!");
       }
-      //debug("[TFL] Step Up: ");
-      //debugln(fadeStepTFL);
+      // debug("[TFL] Step Up: ");
+      // debugln(fadeStepTFL);
     }
   }
   else
@@ -891,7 +889,7 @@ void strobeFct()
   // Strobe Start
   if (!strobeActive)
   {
-    strobeStart();
+    strobeStart(true);
   }
   // Strobe Function
   if (millis() >= strobeMillis + strobePause)
@@ -923,24 +921,23 @@ void strobeFct()
   {
     strobeShort = false;
     strobeCycles = 0;
-    unsigned int key;
-    if (uglwMotorBlock)
-      key = 1;
-    else
-      key = 0;
-    strobeStop(led_mode, led_color, key, led_brtns, led_speed);
+    strobeStop(true);
   }
 }
 
-void strobeStart()
+void strobeStart(bool execMQTT)
 {
+  strobe = true;
   strobeActive = true;
+  buttonStates[0] = true;
 
-  ledSerial.print("mode!" + String(1) + "$");
-  ledSerial.print("color!" + String(16777215) + "$");
-  ledSerial.print("brtns!" + String(255) + "$");
-  ledSerial.print("motor!" + String(0) + "$");
-  ledSerial.print("speed!" + String(100) + "$");
+  if (execMQTT)
+  {
+    selectedModeBefStrobe = selectedMode;
+    char charMode = '4';
+    char *payload = &charMode;
+    mqttClient.publish(fxmode_topic, 0, false, payload);
+  }
 
   strobeDataBefore[0] = ledcRead(0);
   strobeDataBefore[1] = ledcRead(1);
@@ -948,18 +945,31 @@ void strobeStart()
   strobeDataBefore[3] = digitalRead(relaisStarPin);
   strobeDataBefore[4] = digitalRead(relaisTFLLPin);
   strobeDataBefore[5] = digitalRead(relaisTFLRPin);
+
+  EEPROM.write(strobeAdress, 1);
+  EEPROM.commit();
 }
 
-void strobeStop(unsigned int ledMode, unsigned int ledColor, unsigned int ledMotorBlock, unsigned int ledBrtns, unsigned int ledSpeed)
+void strobeStop(bool execMQTT)
 {
   strobe = false;
   strobeActive = false;
 
-  ledSerial.print("color!" + String(ledColor) + "$");
-  ledSerial.print("speed!" + String(ledSpeed) + "$");
-  ledSerial.print("motor!" + String(ledMotorBlock) + "$");
-  ledSerial.print("brtns!" + String(ledBrtns) + "$");
-  ledSerial.print("mode!" + String(ledMode) + "$");
+  if (execMQTT)
+  {
+    char charMode = '5';
+    char *payload = &charMode;
+    if (selectedModeBefStrobe == 1)
+      *payload = '1';
+    else if (selectedModeBefStrobe == 2)
+      *payload = '2';
+    else if (selectedModeBefStrobe == 3)
+      *payload = '3';
+    else if (selectedModeBefStrobe == 4)
+      *payload = '4';
+
+    mqttClient.publish(fxmode_topic, 0, false, payload);
+  }
 
   ledcWrite(0, strobeDataBefore[0]);
   ledcWrite(1, strobeDataBefore[1]);
@@ -967,6 +977,10 @@ void strobeStop(unsigned int ledMode, unsigned int ledColor, unsigned int ledMot
   digitalWrite(relaisStarPin, strobeDataBefore[3]);
   digitalWrite(relaisTFLLPin, strobeDataBefore[4]);
   digitalWrite(relaisTFLRPin, strobeDataBefore[5]);
+
+  EEPROM.write(strobeAdress, 0);
+  EEPROM.commit();
+  buttonStates[0] = false;
 }
 
 // Relais Functions
@@ -1005,8 +1019,6 @@ void saveOutputParams()
   outputParamsBefore[3] = digitalRead(relaisStarPin);
   outputParamsBefore[4] = digitalRead(relaisTFLLPin);
   outputParamsBefore[5] = digitalRead(relaisTFLRPin);
-  led_mode_before = led_mode;
-  led_brtns_before = led_brtns;
 }
 
 void restoreOutputParams()
@@ -1020,10 +1032,6 @@ void restoreOutputParams()
   digitalWrite(relaisStarPin, outputParamsBefore[3]);
   digitalWrite(relaisTFLLPin, outputParamsBefore[4]);
   digitalWrite(relaisTFLRPin, outputParamsBefore[5]);
-  if (led_mode != led_mode_before)
-    ledSerial.print("brtns!" + String(led_brtns) + "$");
-  if (led_brtns != led_brtns_before)
-    ledSerial.print("mode!" + String(led_mode) + "$");
 }
 
 // API Override Light Scene
@@ -1513,7 +1521,7 @@ void initLastState()
   debugln("[EEPROM] Extraction completed!");
 }
 
-void writeColorEEPROM(unsigned int key)
+void writeColorEEPROM(unsigned int key, bool favorite)
 {
   int lowbit = key & 255;
   int midbit = (key >> 8) & 255;
@@ -1775,8 +1783,7 @@ void assignServerHandlers()
                 btnState = "No message sent";
               }
               request->send(200, "text/plain", "OK");
-              interpretButton(btnID.toInt());
-            });
+              interpretButton(btnID.toInt()); });
 
   server.on("/slider", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -1806,8 +1813,7 @@ void assignServerHandlers()
                 sliderValue = "No message sent";
               }
               request->send(200, "text/plain", "OK");
-              interpretSlider(sliderID.toInt());
-            });
+              interpretSlider(sliderID.toInt()); });
 
   server.on("/momentaryButton", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -1829,8 +1835,7 @@ void assignServerHandlers()
                 btnState = "No message sent";
               }
               request->send(200, "text/plain", "OK");
-              interpretButton(btnID.toInt());
-            });
+              interpretButton(btnID.toInt()); });
 
   server.on("/starStateText", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send_P(200, "text/plain", readStarState().c_str()); });
@@ -1844,8 +1849,7 @@ void assignServerHandlers()
               {
                 String btnID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6));
                 request->send_P(200, "text/plain", readWebBtn(btnID.toInt()).c_str());
-              }
-            });
+              } });
 
   server.on("/sldrstate", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -1853,8 +1857,7 @@ void assignServerHandlers()
               {
                 String sldrID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6));
                 request->send_P(200, "text/plain", readWebSldr(sldrID.toInt()).c_str());
-              }
-            });
+              } });
 
   server.on("/dropdown", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -1865,32 +1868,27 @@ void assignServerHandlers()
                 if (dropdownID == 0 || dropdownID == 1)       //dropdown: 0 - underglow modes | 1 - colors
                   uglw_sendValue(dropdownID, buttonID, true); //starting at 0
               }
-              request->send(200, "text/plain", "OK");
-            });
+              request->send(200, "text/plain", "OK"); });
 
   server.on("/infoText1", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               String retval = "WiFi-RSSI: " + String(WiFi.RSSI());
-              request->send_P(200, "text/plain", retval.c_str());
-            });
+              request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/infoText3", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               String retval = "Battery-Voltage: " + String(batteryVoltage) + " Volt";
-              request->send_P(200, "text/plain", retval.c_str());
-            });
+              request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/batVoltOffset", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               String retval = "Battery-Voltage Offset: " + String(batVoltOffset) + " Volt";
-              request->send_P(200, "text/plain", retval.c_str());
-            });
+              request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/favoriteUGLWMode", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               String retval = "Favorite Mode: " + String(favoriteMode);
-              request->send_P(200, "text/plain", retval.c_str());
-            });
+              request->send_P(200, "text/plain", retval.c_str()); });
 }
 
 String readStarState()
@@ -2198,7 +2196,7 @@ void interpretButton(int id)
 }
 
 // Underglow Handlers
-void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite) // 0 - mode | 1 - color | 2 - brtns | 3 - speed | 4 - Motor-Restriction
+void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite = false) // 0 - mode | 1 - color | 2 - brtns | 3 - speed | 4 - Motor-Restriction | 5 - Data-Transmission
 {
   String retval = "";
   unsigned int payload = 0;
@@ -2337,12 +2335,10 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite) // 
       led_mode = key;
       EEPROM.write(modeAdress, key);
       EEPROM.commit();
-      if (selectedMode == 2)
-      {
-        ledSerial.print("trans!0$");
+      if (selectedMode == 1)
         ledSerial.print("mode!" + String(key) + "$");
-        ledSerial.print("trans!1$");
-      }
+      else if (selectedMode == 2)
+        mqttClient.publish(fxmode_topic, 0, 0, "2");
     }
     else
       ledSerial.print("mode!" + String(key) + "$");
@@ -2402,7 +2398,7 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite) // 
       debugln("\n[LED] Color was changed!");
       led_color = payload;
       writeColorEEPROM(payload);
-      if (selectedMode == 2 || selectedMode == 1)
+      if (selectedMode == 1 || selectedMode == 2)
         ledSerial.print("color!" + String(payload) + "$");
     }
     else
@@ -2410,39 +2406,44 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite) // 
   }
   else if (dropdown == 2 && key >= 0 && key <= 255) // Brtns
   {
+    retval = "Brightness " + String(key);
     if (overwrite)
     {
       debugln("\n[LED] Brtns was changed!");
       led_brtns = sliderValues[4];
       EEPROM.write(brtnsAdress, sliderValues[4]);
       EEPROM.commit();
-      if (selectedMode == 2)
+      if (selectedMode == 1 || selectedMode == 2)
         ledSerial.print("brtns!" + String(key) + "$");
     }
     else
       ledSerial.print("brtns!" + String(key) + "$");
-    retval = "Brightness " + String(key);
   }
   else if (dropdown == 3 && key >= 0 && key <= 65535) // Speed
   {
+    retval = "Speed " + String(key);
     if (overwrite)
     {
       debugln("\n[LED] Speed was changed!");
       led_speed = sliderValues[5];
       writeSpeedEEPROM(sliderValues[5]);
-      if (selectedMode == 2 || selectedMode == 1)
+      if (selectedMode == 1 || selectedMode == 2)
         ledSerial.print("speed!" + String(key) + "$");
     }
     else
       ledSerial.print("speed!" + String(key) + "$");
-    retval = "Speed " + String(key);
   }
   else if (dropdown == 4 && key >= 0 && key <= 1)
   {
     ledSerial.print("motor!" + String(key) + "$");
     retval = "Motor-Restriction " + String(key);
   }
-  debugln("\n[HTTP] Underglow " + retval + " was selected");
+  else if (dropdown == 5)
+  {
+    ledSerial.print("trans!" + String(key) + "$");
+    retval = "Data-Transmission " + String(key);
+  }
+  debugln("\n[HTTP] Underglow " + retval + " was selected!");
 }
 
 // MQTT
@@ -2516,82 +2517,80 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       debugln("\n[MQTT] Subscribed topic - Alive Message!");
     }
   }
-  else if (topicStr == mode_topic)
+  else if (topicStr == fxmode_topic)
   {
-    uglw_sendValue(0, payloadStr.toInt(), false); // send new mode
-    debugln("\n[MQTT] Subscribed topic - UGLW Mode: " + payloadStr);
-  }
-  else if (topicStr == color_topic)
-  {
-    uglw_sendValue(1, payloadStr.toInt(), false); // send new color
-    debugln("\n[MQTT] Subscribed topic - UGLW Color: " + payloadStr);
-  }
-  else if (topicStr == brtns_topic)
-  {
-    uglw_sendValue(2, payloadStr.toInt(), false); // send new color
-    debugln("\n[MQTT] Subscribed topic - UGLW Brtns: " + payloadStr);
-  }
-  else if (topicStr == speed_topic)
-  {
-    uglw_sendValue(3, payloadStr.toInt(), false); // send new color
-    debugln("\n[MQTT] Subscribed topic - UGLW Speed: " + payloadStr);
-  }
-  else if (topicStr == rainbow_topic)
-  {
-    if (payloadStr == "1")
+    selectedMode = payloadStr.toInt();
+    switch (selectedMode)
     {
-      selectedMode = 3;
-      ledSerial.print("trans!0$");
-      uglw_sendValue(4, 0U, true);
-      uglw_sendValue(3, 0U, false);           // speed 0
-      uglw_sendValue(2, 255U, false);         // full brtns
-      uglw_sendValue(0, favoriteMode, false); // favorite mode
-      ledSerial.print("trans!1$");
-      debugln("\n[MQTT] Subscribed topic - FX Mode Rainbow: " + payloadStr);
+    case 1:
+      if (selectedModeBef == 4)
+        strobeStop(false);
+      debugln("\n[MQTT] Subscribed topic - FX Mode Blackout");
+      break;
+
+    case 2:
+      if (selectedModeBef == 4)
+        strobeStop(false);
+      if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
+        uglw_sendValue(5, 0); // init data transmission
+      uglw_sendValue(3, led_speed);
+      uglw_sendValue(2, led_brtns);
+      uglw_sendValue(1, led_color);
+      uglw_sendValue(0, led_mode);
+      if (selectedModeBef == 2 || selectedModeBef == 3)
+        uglw_sendValue(5, 20); // transition duration 20ms * 100
+      else if (selectedModeBef == 4)
+        uglw_sendValue(5, 999); // transition duration 0ms
+      if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
+        uglw_sendValue(5, 1); // finish data transmission
+      debugln("\n[MQTT] Subscribed topic - FX Mode HTML Ctrld");
+      break;
+
+    case 3:
+      if (selectedModeBef == 4)
+        strobeStop(false);
+      if (selectedModeBef == 2 || selectedModeBef == 4)
+        uglw_sendValue(5, 0); // init data transmission
+      uglw_sendValue(3, led_speed);
+      uglw_sendValue(2, led_brtns);
+      uglw_sendValue(1, led_color);
+      uglw_sendValue(0, favoriteMode);
+      if (selectedModeBef == 2)
+        uglw_sendValue(5, 20); // transition duration 20ms * 100
+      else if (selectedModeBef == 4)
+        uglw_sendValue(5, 999); // transition duration 0ms
+      if (selectedModeBef == 2 || selectedModeBef == 4)
+        uglw_sendValue(5, 1); // finish data transmission
+      debugln("\n[MQTT] Subscribed topic - FX Mode Favorite");
+      break;
+
+    case 4:
+      if (selectedModeBef == 2 || selectedModeBef == 3)
+        uglw_sendValue(5, 0); // init data transmission
+      uglw_sendValue(3, led_speed_strobe);
+      uglw_sendValue(2, 255U);
+      uglw_sendValue(1, 16777215);
+      uglw_sendValue(0, led_mode_strobe);
+      if (selectedModeBef == 2)
+        uglw_sendValue(5, 999); // transition duration 20ms * 100
+      else if (selectedModeBef == 3)
+        uglw_sendValue(5, 999); // transition duration 0ms
+      if (selectedModeBef == 2 || selectedModeBef == 3)
+        uglw_sendValue(5, 1); // finish data transmission
+
+      strobeStart(false);
+
+      debugln("\n[MQTT] Subscribed topic - FX Mode Strobe");
+      break;
+
+    case 5:
+      debugln("\n[MQTT] Subscribed topic - FX Mode - ERROR thrown mode 5 (strobestop)");
+      break;
+
+    default:
+      break;
     }
-    else
-    {
-      selectedMode = 2;
-      unsigned int key;
-      if (uglwMotorBlock)
-        key = 1U;
-      else
-        key = 0U;
-      if (key == 0)
-        ledSerial.print("trans!0$");
-      uglw_sendValue(4, key, true);
-      uglw_sendValue(3, led_speed, false);
-      uglw_sendValue(2, led_brtns, false);
-      uglw_sendValue(1, led_color, false);
-      uglw_sendValue(0, led_mode, false);
-      if (key == 0)
-        ledSerial.print("trans!1$");
-      debugln("\n[MQTT] Subscribed topic - FX Mode Rainbow: " + payloadStr);
-    }
-  }
-  else if (topicStr == strobe_topic)
-  {
-    if (payloadStr == "1")
-    {
-      selectedMode = 4;
-      buttonStates[0] = true;
-      strobe = true;
-      strobeStart();
-      EEPROM.write(strobeAdress, 1);
-      EEPROM.commit();
-      debugln("\n[MQTT] Subscribed topic - FX Mode Strobe: " + payloadStr);
-    }
-    else
-    {
-      selectedMode = 3;
-      buttonStates[0] = false;
-      strobe = false;
-      strobeActive = false;
-      EEPROM.write(strobeAdress, 0);
-      EEPROM.commit();
-      strobeStop(favoriteMode, 0U, 0U, 255U, 100U); // directly send uglw mode to rainbow instead of the original mode from http
-      debugln("\n[MQTT] Subscribed topic - FX Mode Strobe: " + payloadStr);
-    }
+    selectedModeBef = selectedMode;
   }
   else
   {
@@ -2609,8 +2608,7 @@ void onMqttConnect(bool sessionPresent)
   mqttClient.subscribe(brtns_topic, 0);
   mqttClient.subscribe(color_topic, 0);
   mqttClient.subscribe(speed_topic, 0);
-  mqttClient.subscribe(strobe_topic, 0);
-  mqttClient.subscribe(rainbow_topic, 0);
+  mqttClient.subscribe(fxmode_topic, 0);
   mqttClient.publish(status_topic, 0, false, "starhost1 active!");
   delay(100);
 }
@@ -2711,19 +2709,21 @@ bool checkWiFi()
 // Emergency Handlers
 void setEmergencyMode()
 {
-  emergency = true;
-  ledSerial.print(String(apiOvrOff_topic) + "!1$");
-  saveOutputParams();
-  apiOverrideLights();
-  debugln("\n[EMERGENCY] Mode activated!");
+  if (!emergency)
+  {
+    emergency = true;
+    ledSerial.print(String(apiOvrOff_topic) + "!1$");
+    saveOutputParams();
+    apiOverrideLights();
+    debugln("\n[EMERGENCY] Mode activated!");
+  }
 }
 
 void resetEmergencyMode()
 {
-  if (!apiOverrideOff && !batteryEmergency)
+  if (!apiOverrideOff && !batteryEmergency && emergency)
   {
     emergency = false;
-    ledSerial.print(String(mode_topic) + "!" + String(led_mode) + "$");
     ledSerial.print(String(apiOvrOff_topic) + "!0$");
     restoreOutputParams();
     debugln("\n[EMERGENCY] Mode deactivated!");
@@ -2737,15 +2737,23 @@ void resetEmergencyMode()
 // Serial LED Handlers
 void uglwWriteOutput()
 {
-  if (uglwMotorRestriction && motorRunning && !uglwMotorBlock && (selectedMode == 2 || selectedMode == 1))
+  if (uglwMotorRestriction && motorRunning && !uglwMotorBlock)
   {
-    uglwMotorBlock = true;
-    uglw_sendValue(4, 1U, true);
+    uglwMotorBlockPrecaution = true;
+    if (selectedMode == 1 || selectedMode == 2) // only transmit motor-blockage if motor-restricted modes are active
+    {
+      uglwMotorBlock = true;
+      uglw_sendValue(4, 1U, true);
+    }
   }
-  else if ((!uglwMotorRestriction || (uglwMotorRestriction && !motorRunning)) && uglwMotorBlock && (selectedMode == 2 || selectedMode == 1))
+  else if ((!uglwMotorRestriction || (uglwMotorRestriction && !motorRunning)) && uglwMotorBlock)
   {
-    uglwMotorBlock = false;
-    uglw_sendValue(4, 0U, true);
+    uglwMotorBlockPrecaution = false;
+    if (selectedMode == 1 || selectedMode == 2)
+    {
+      uglwMotorBlock = false;
+      uglw_sendValue(4, 0U, true);
+    }
   }
 }
 
