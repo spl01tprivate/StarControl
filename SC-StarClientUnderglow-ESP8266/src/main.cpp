@@ -130,6 +130,7 @@ void setup();
 void loop();
 void handlers();
 void saveStripParams(bool);
+unsigned int brtnsMathFct(unsigned int);
 void transitionLED(unsigned int);
 void applySettingsLED();
 void ledBlink();
@@ -222,6 +223,12 @@ void saveStripParams(bool strip)
     }
 }
 
+unsigned int brtnsMathFct(unsigned int curBrtns)
+{
+    float curBrtnsF = (float)curBrtns / 100;
+    return (unsigned int)exp(1.18 * curBrtnsF);
+}
+
 void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 = mode change | 2 = motor start | 3 = motor stop
 {
     if (transitionType == 0 && transitionActive && (millis() > transitionLastStep + transitionTimeDelay) && !emergency)
@@ -232,7 +239,7 @@ void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 =
             unsigned int curBrtns = leds.getBrightness();
             if (curBrtns > 0)
             {
-                int newBrtns = curBrtns - 1; // TODO - Negative coefficient
+                int newBrtns = curBrtns - brtnsMathFct(curBrtns); // TODO - Negative coefficient
                 if (newBrtns < 0)
                     newBrtns = 0;
                 leds.setBrightness(newBrtns);
@@ -261,7 +268,7 @@ void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 =
             unsigned int curBrtns = leds.getBrightness();
             if (curBrtns < led_brtns)
             {
-                unsigned int newBrtns = curBrtns + 1;
+                unsigned int newBrtns = curBrtns + brtnsMathFct(curBrtns); // TODO - Positive coefficient
                 if (newBrtns > led_brtns)
                     newBrtns = led_brtns;
                 leds.setBrightness(newBrtns);
