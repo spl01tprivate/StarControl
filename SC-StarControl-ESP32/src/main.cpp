@@ -190,12 +190,14 @@ bool tflMode; // stores automatic or manually mode
 bool motorRunning = false; // stores motor running
 
 // Strobe
-bool strobeShort = false;       // Short Strobe mode active
-bool strobe = false;            // Continuous Strobe mode activce
+bool strobeShort = false; // Short Strobe mode active
+bool strobe = false;      // Continuous Strobe mode activce
+bool httpStrobe = false;
 unsigned long strobeMillis = 0; // Time since last strobe cycle
 int strobeCycles = 0;           // Strobe Cycles already happend
 bool strobeActive = false;      // Stores whether StrobeFct begun with work
-int strobeDataBefore[6];        // Stores previous states of analog / digital outputs of relais and leds
+bool strobeActiveMQTT = false;
+int strobeDataBefore[6]; // Stores previous states of analog / digital outputs of relais and leds
 
 // TFL ISR
 portMUX_TYPE sync = portMUX_INITIALIZER_UNLOCKED;
@@ -441,7 +443,13 @@ void loop()
 
     uglwWriteOutput();
 
-  } while (!starStarted && !tflStarted && !uglwStarted);
+    if (emergency)
+    {
+      starStarted = true;
+      tflStarted = true;
+      uglwStarted = true;
+    }
+  } while (!starStarted || !tflStarted || !uglwStarted);
 
   mqttAliveMessage();
 
@@ -974,8 +982,9 @@ void strobeStart(bool execMQTT)
 
   if (execMQTT)
   {
+    strobeActiveMQTT = true;
     uglwStarted = true;
-    selectedModeBefStrobe = selectedMode;
+    selectedModeBefStrobe = selectedModeBef;
     char charMode = '4';
     char *payload = &charMode;
     mqttClient.publish(fxmode_topic, 0, false, payload);
@@ -997,6 +1006,7 @@ void strobeStop(bool execMQTT)
 {
   strobe = false;
   strobeActive = false;
+  buttonStates[0] = false;
 
   if (execMQTT)
   {
@@ -1024,7 +1034,6 @@ void strobeStop(bool execMQTT)
 
   EEPROM.write(strobeAdress, 0);
   EEPROM.commit();
-  buttonStates[0] = false;
 }
 
 // Relais Functions
@@ -2261,14 +2270,24 @@ void interpretButton(int id)
     if (buttonStates[id])
     {
       debugln("[HTTP] Strobe: On");
-      strobe = true;
-      EEPROM.write(strobeAdress, 1);
+      debugln("\n selectedModeBef = " + String(selectedModeBef) + " | selectedMode = " + String(selectedMode));
+      if (selectedModeBef != 4)
+      {
+        strobe = true;
+        httpStrobe = true;
+        EEPROM.write(strobeAdress, 1);
+      }
     }
     else
     {
       debugln("[HTTP] Strobe: Off");
-      strobe = false;
-      EEPROM.write(strobeAdress, 0);
+      debugln("\n selectedModeBef = " + String(selectedModeBef) + " | selectedMode = " + String(selectedMode));
+      if (selectedModeBef != 4)
+      {
+        strobe = false;
+        httpStrobe = false;
+        EEPROM.write(strobeAdress, 0);
+      }
     }
     EEPROM.commit();
   }
@@ -2678,6 +2697,11 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       selectedMode = 2;
       if (selectedModeBef == 4)
         strobeStop(false);
+      if (strobeActiveMQTT)
+      {
+        selectedModeBef = 4;
+        strobeActiveMQTT = false;
+      }
       if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
         uglw_sendValue(5, 0); // init data transmission
       uglw_sendValue(3, led_speed);
@@ -2702,6 +2726,11 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       selectedMode = 3;
       if (selectedModeBef == 4)
         strobeStop(false);
+      if (strobeActiveMQTT)
+      {
+        selectedModeBef = 4;
+        strobeActiveMQTT = false;
+      }
       if (selectedModeBef == 2 || selectedModeBef == 4)
         uglw_sendValue(5, 0); // init data transmission
       uglw_sendValue(3, favoriteSpeed);
@@ -2761,7 +2790,8 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
     default:
       break;
     }
-    selectedModeBef = selectedMode;
+    if (!httpStrobe)
+      selectedModeBef = selectedMode;
   }
   else
   {
@@ -2960,6 +2990,7 @@ void serialLEDHandler()
         {
           serialClientConnection = false;
           debugln("\n[Serial] Initializing client communication!");
+          uglwStarted = true;
         }
         ledSerial.print("status!host-alive$");
         if (emergency)
