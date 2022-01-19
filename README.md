@@ -15,8 +15,13 @@ The main purpose of this controller is to give the driver the ability to quickly
 ### Underglow-Client | ESP8266:
 This MCU was added, because the ESP32 had severe problems during my hardware tests with pushing the data for the WS2812 LEDs out. In several threads was reported this is because of the WiFi instance is periodically interrupting other processes and therefore disturbs the transmission of the data stream to the LEDs. That's why I decided to add another MCU to only control the 600 digital LEDs (which additionally demands a lot computing power) without having to do WiFi communication. Consequently I am relying on a serial-only-communication between the "Underglow-Client" and the "StarController" - so everyone concentrates on their tasks independently of each other :)
 
-## Old Version
-This is a circuit diagramm from the older version, in which only the StarController existed and controlled just the Star and DRLs. For the new version the only changes are the migration to the ESP32 as StarController and the newly added "Underglow-Part".
+## Version 2.0
+The new revision's major changes are the migration to the more performant ESP32 D1 Mini, aswell as the other two additional MCUs. StarClient UGLW handles the digital LEDs, while StarClient Emergency is located in the driver's cabin to expose a WiFi-AP and is further more equipped with a 4 mode slider to easily switch between different light scenes.
+
+![Schematic_Star-Control-V2_2022-01-19](https://user-images.githubusercontent.com/33253725/150177973-799380a1-2141-4049-8bb5-3796c29a30c9.png)
+
+## Version 1.0
+This is a circuit diagramm from the older version, in which only the StarController existed which controlled the Star and DRLs.
 
 ![Schematic_Star-Control_2021-10-06](https://user-images.githubusercontent.com/33253725/149627361-69b01865-dca2-4f18-b78a-5a95abb0b29b.png)
 
