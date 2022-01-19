@@ -78,8 +78,9 @@ int ledBlinkCounter = 0;
 bool ledBlinkInProgress = false;
 unsigned long ledBlinkLastBlink = 0;
 
-// WS2812FX & LED Parameters
-WS2812FX leds = WS2812FX(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+WS2812FXT leds = WS2812FXT(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+bool activeStrip = true; // true = 1 | false = 2
 
 unsigned int led_mode;
 unsigned int led_color;
@@ -91,37 +92,11 @@ unsigned int led_color_bef = -1;
 unsigned int led_brtns_bef = -1;
 unsigned int led_speed_bef = -1;
 
-// Transition
-bool transitionActive = false;
-bool transDown = false;
-bool transUp = false;
-bool activeStrip = true; // true = 1 | false = 2
-
-struct
-{
-    unsigned int led_mode;
-    unsigned int led_color;
-    unsigned int led_brtns;
-    unsigned int led_speed;
-} v1Strip;
-
-struct
-{
-    unsigned int led_mode;
-    unsigned int led_color;
-    unsigned int led_brtns;
-    unsigned int led_speed;
-} v2Strip;
+bool uglwMotorBlock = false;
+bool motorBlockTransition = false;
 
 const unsigned int transitionTimeMotorBlock = 2000; // 1s to switch off uglw on starting motor
 unsigned int transitionTimeMode = 1000;
-unsigned int transitionTimeDelay = 0;
-unsigned long transitionLastStep = 0;
-
-// Motor Blockage
-bool uglwMotorBlock = false;
-bool motorBlockTransition = false;
-unsigned int motorBlockageBrtnsBefore;
 
 bool transDataReceived = true;
 
@@ -129,9 +104,7 @@ bool transDataReceived = true;
 void setup();
 void loop();
 void handlers();
-void saveStripParams(bool);
-void transitionLED(unsigned int);
-void applySettingsLED();
+void LED_applySettings();
 void ledBlink();
 void ledBlinkError();
 void ledBlinkSuccess();
@@ -167,8 +140,10 @@ void setup()
 
     // LEDs - 2 virtual strips to transition between
     leds.init();
-    leds.setSegment(0, 0, LED_COUNT - 1, 0U, 0U, 0U);
-    leds.setBrightness(0);
+    leds.v1->setSegment(0, 0, LED_COUNT - 1, 0U, 0U, 0U);
+    leds.v1->setBrightness(0);
+    leds.v2->setSegment(0, 0, LED_COUNT - 1, 0U, 0U, 0U);
+    leds.v2->setBrightness(0);
     leds.start();
 
     // Communication Config
@@ -182,9 +157,7 @@ void loop()
 {
     handlers();
 
-    transitionLED(0);
-
-    applySettingsLED();
+    LED_applySettings();
 
     ledBlink();
 
@@ -201,132 +174,7 @@ void handlers()
 }
 
 // WS2812 Handlers
-void saveStripParams(bool strip)
-{
-    // Inverted logic, because active strip is changed not until brtns was 0
-    if (strip) // V2
-    {
-        v2Strip.led_mode = led_mode;
-        v2Strip.led_color = led_color;
-        v2Strip.led_brtns = led_brtns;
-        v2Strip.led_speed = led_speed;
-        debugln("\n[TRANS] Prepared Virtual 2 - Mode: " + String(v2Strip.led_mode) + " - Color: " + String(v2Strip.led_color) + " - Brtns: " + String(v2Strip.led_brtns) + " - Speed: " + String(v2Strip.led_speed) + "\n");
-    }
-    else // V1
-    {
-        v1Strip.led_mode = led_mode;
-        v1Strip.led_color = led_color;
-        v1Strip.led_brtns = led_brtns;
-        v1Strip.led_speed = led_speed;
-        debugln("\n[TRANS] Prepared Virtual 1 - Mode: " + String(v1Strip.led_mode) + " - Color: " + String(v1Strip.led_color) + " - Brtns: " + String(v1Strip.led_brtns) + " - Speed: " + String(v1Strip.led_speed) + "\n");
-    }
-}
-
-void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 = mode change | 2 = motor start | 3 = motor stop
-{
-    if (transitionType == 0 && transitionActive && (millis() > transitionLastStep + transitionTimeDelay) && !emergency)
-    {
-        transitionLastStep = millis();
-        if (transDown)
-        {
-            unsigned int curBrtns = leds.getBrightness();
-            if (curBrtns > 0)
-            {
-                int newBrtns = curBrtns - 1; // TODO - Negative coefficient
-                if (newBrtns < 0)
-                    newBrtns = 0;
-                leds.setBrightness(newBrtns);
-                leds.service();
-            }
-            else
-            {
-                transDown = false;
-                transUp = true;
-                activeStrip = !activeStrip;
-                if (activeStrip)
-                {
-                    leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.led_color, v1Strip.led_speed);
-                    debugln("\n[TRANS] Reached half transition! - Loading settings V1\n");
-                }
-                else
-                {
-                    leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.led_color, v2Strip.led_speed);
-                    debugln("\n[TRANS] Reached half transition! - Loading settings V2\n");
-                }
-                ledBlinkCode = 1;
-            }
-        }
-        else if (transUp)
-        {
-            unsigned int curBrtns = leds.getBrightness();
-            if (curBrtns < led_brtns)
-            {
-                unsigned int newBrtns = curBrtns + 1;
-                if (newBrtns > led_brtns)
-                    newBrtns = led_brtns;
-                leds.setBrightness(newBrtns);
-                leds.service();
-            }
-            else
-            {
-                transUp = false;
-                transitionActive = false;
-                debugln("\n[TRANS] Finished transition!\n");
-            }
-        }
-    }
-    else if (transitionType == 1)
-    {
-        debugln("\n[TRANS] Started transition!");
-    }
-    else if (transitionType == 2)
-    {
-        debugln("\n[TRANS] Started transition (down) because of motor blockage!");
-    }
-    else if (transitionType == 3)
-    {
-        debugln("\n[TRANS] Started transition (up) because of motor blockage release!");
-    }
-    if (transitionType == 1 || transitionType == 2 || transitionType == 3)
-    {
-        saveStripParams(activeStrip);
-
-        if (transitionTimeMode == 0)
-        {
-            // Static transition
-            activeStrip = !activeStrip;
-            if (activeStrip)
-            {
-                leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.led_color, v1Strip.led_speed);
-                leds.setBrightness(v1Strip.led_brtns);
-            }
-            else
-            {
-                leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.led_color, v2Strip.led_speed);
-                leds.setBrightness(v2Strip.led_brtns);
-            }
-            debugln("\n[TRANS] Finished static transition!\n");
-        }
-        else
-        {
-            // Dynamic transition
-            transitionActive = true;
-            transDown = true;
-            ledBlinkCode = 2;
-
-            // Calculate transition step delay and duration
-            unsigned int curBrtns = leds.getBrightness();
-            unsigned int targetBrtns = activeStrip ? v2Strip.led_brtns : v1Strip.led_brtns;
-
-            unsigned int steps = curBrtns + targetBrtns;
-
-            transitionTimeDelay = transitionTimeMode / steps;
-            debugln("\n[TRANS] Delay between steps: " + String(transitionTimeDelay) + "ms");
-        }
-    }
-}
-
-void applySettingsLED()
+void LED_applySettings()
 {
     if (!uglwMotorBlock && !motorBlockTransition && !emergency && transDataReceived)
     {
@@ -344,7 +192,10 @@ void applySettingsLED()
             led_color_bef = led_color;
             if (!transitionChanges)
             {
-                leds.setColor(led_color);
+                if (activeStrip)
+                    leds.v1->setColor(led_color);
+                else
+                    leds.v2->setColor(led_color);
             }
             debugln("\n[LED] COLOR was changed to " + String(led_color) + "!");
         }
@@ -354,7 +205,10 @@ void applySettingsLED()
             led_brtns_bef = led_brtns;
             if (!transitionChanges)
             {
-                leds.setBrightness(led_brtns);
+                if (activeStrip)
+                    leds.v1->setBrightness(led_brtns);
+                else
+                    leds.v2->setBrightness(led_brtns);
             }
             debugln("\n[LED] BRIGHTNESS was changed to " + String(led_brtns) + "!");
         }
@@ -364,27 +218,72 @@ void applySettingsLED()
             led_speed_bef = led_speed;
             if (!transitionChanges)
             {
-                leds.setSpeed(led_speed);
+                if (activeStrip)
+                    leds.v1->setSpeed(led_speed);
+                else
+                    leds.v2->setSpeed(led_speed);
             }
             debugln("\n[LED] SPEED was changed to " + String(led_speed) + "!");
         }
 
         if (transitionChanges)
         {
-            transitionLED(1);
+            if (activeStrip)
+            {
+                leds.v2->setSegment(0, 0, LED_COUNT - 1, led_mode, led_color, led_speed);
+                leds.v2->setBrightness(led_brtns);
+                debugln("\n --- Virtual 2 - Settings - Mode: " + String(leds.v2->getMode()) + " - Color: " + String(leds.v2->getColor()) + " - Brtns: " + String(leds.v2->getBrightness()) + " - Speed: " + String(leds.v2->getSpeed()) + " ---\n");
+            }
+            else
+            {
+                leds.v1->setSegment(0, 0, LED_COUNT - 1, led_mode, led_color, led_speed);
+                leds.v1->setBrightness(led_brtns);
+                debugln("\n --- Virtual 1 - Settings - Mode: " + String(leds.v1->getMode()) + " - Color: " + String(leds.v1->getColor()) + " - Brtns: " + String(leds.v1->getBrightness()) + " - Speed: " + String(leds.v1->getSpeed()) + " ---\n");
+            }
+            leds.startTransition(transitionTimeMode, activeStrip);
+            activeStrip = !activeStrip;
+            debugln("\n[LED] Started transition - mode changed!");
         }
     }
     else if (uglwMotorBlock && motorBlockTransition)
     {
         // Motor-Blockage was received --> Transition to uglw off
         motorBlockTransition = false;
-        transitionLED(2);
+        if (activeStrip)
+        {
+            leds.v2->setSegment(0, 0, LED_COUNT - 1, leds.v1->getMode(), leds.v1->getColor(), leds.v1->getSpeed());
+            leds.v2->setBrightness(0);
+        }
+        else
+        {
+            leds.v1->setSegment(0, 0, LED_COUNT - 1, leds.v2->getMode(), leds.v2->getColor(), leds.v2->getSpeed());
+            leds.v1->setBrightness(0);
+        }
+        leds.startTransition(transitionTimeMotorBlock, activeStrip);
+        activeStrip = !activeStrip;
+        debugln("\n[LED] Started transition (down) because of motor blockage!");
     }
     else if (!uglwMotorBlock && motorBlockTransition)
     {
         // Motor-Blockage was released --> Transition to uglw on
         motorBlockTransition = false;
-        transitionLED(3);
+        led_mode_bef = led_mode;
+        led_color_bef = led_color;
+        led_brtns_bef = led_brtns;
+        led_speed_bef = led_speed;
+        if (activeStrip)
+        {
+            leds.v2->setSegment(0, 0, LED_COUNT - 1, led_mode, led_color, led_speed);
+            leds.v2->setBrightness(led_brtns);
+        }
+        else
+        {
+            leds.v1->setSegment(0, 0, LED_COUNT - 1, led_mode, led_color, led_speed);
+            leds.v1->setBrightness(led_brtns);
+        }
+        leds.startTransition(transitionTimeMotorBlock, activeStrip);
+        activeStrip = !activeStrip;
+        debugln("\n[LED] Started transition (up) because of motor blockage release!");
     }
 }
 
@@ -501,7 +400,7 @@ void initLastState()
         debugln(" - [EMERGENCY] Mode activated!");
         apiOverrideOff = true;
         emergency = true;
-        leds.setBrightness(0);
+        leds.v1->setBrightness(0);
         EEPROM.write(apiOverrideOffAdress, 1); // then write override to turn lights off
     }
 
@@ -657,33 +556,35 @@ unsigned int readSpeedEEPROM()
 void setEmergencyMode()
 {
     emergency = true;
-    leds.setBrightness(0);
+    if (activeStrip)
+        leds.v1->setBrightness(0);
+    else
+        leds.v2->setBrightness(0);
     leds.service();
-
-    // Stop ongoing transition
-    transDown = false;
-    transUp = false;
-    transitionActive = false;
-    debugln("\n[TRANS] Stopped transition!\n");
-
     debugln("\n[EMERGENCY] Mode activated!\n");
 }
 
 void resetEmergencyMode()
 {
     emergency = false;
-    if (!uglwMotorBlock && serialInitDataReceived)
+    if (!uglwMotorBlock)
     {
-        leds.setSegment(0, 0, LED_COUNT - 1, led_mode, led_color, led_speed);
-        leds.setBrightness(led_brtns);
         if (activeStrip)
-            debugln("\n --- Virtual 1 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color: " + String(leds.getColor()) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
+        {
+            leds.v1->setSegment(0, 0, LED_COUNT - 1, led_mode, led_color, led_speed);
+            leds.v1->setBrightness(led_brtns);
+            debugln("\n --- Virtual 1 EMEG - Settings - Mode: " + String(leds.v1->getMode()) + " - Color: " + String(leds.v1->getColor()) + " - Brtns: " + String(leds.v1->getBrightness()) + " - Speed: " + String(leds.v1->getSpeed()) + " ---\n");
+        }
         else
-            debugln("\n --- Virtual 2 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color: " + String(leds.getColor()) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
-        led_mode_bef = led_mode;
+        {
+            leds.v2->setSegment(0, 0, LED_COUNT - 1, led_mode, led_color, led_speed);
+            leds.v2->setBrightness(led_brtns);
+            debugln("\n --- Virtual 2 EMEG - Settings - Mode: " + String(leds.v2->getMode()) + " - Color: " + String(leds.v2->getColor()) + " - Brtns: " + String(leds.v2->getBrightness()) + " - Speed: " + String(leds.v2->getSpeed()) + " ---\n");
+        }
+        /*led_mode_bef = led_mode;
         led_color_bef = led_color;
         led_brtns_bef = led_brtns;
-        led_speed_bef = led_speed;
+        led_speed_bef = led_speed;*/
     }
     debugln("\n[EMERGENCY] Mode deactivated!\n");
 }
@@ -718,6 +619,11 @@ bool serialCallback()
     else if (String(topic) == apiOvrOff_topic) // API Override Off Handler
     {
         debugln("[Serial] Subscribed topic - API Override Light Off: " + String(payload));
+        if (!serialInitDataReceived)
+        {
+            serialInitDataReceived = true;
+            debugln("\n[EMERGENCY] Received init Data!");
+        }
         if (payload == "1")
         {
             apiOverrideOff = true;
@@ -742,10 +648,9 @@ bool serialCallback()
             led_mode = key;
             EEPROM.write(modeAdress, led_mode);
             EEPROM.commit();
-            debugln("\n[LED] MODE was saved to " + String(key) + "!\n");
+            debugln("\n[LED] MODE was saved to " + String(key) + "!");
         }
-        else if (key == led_mode)
-            ;
+        else if (key == led_mode);
         else
             debugln("\n[LED] " + String(key) + " is out of range for parameter MODE!");
     }
@@ -759,8 +664,7 @@ bool serialCallback()
             writeColorEEPROM(led_color);
             debugln("\n[LED] COLOR was saved to " + String(key) + "!");
         }
-        else if (key == led_color)
-            ;
+        else if (key == led_color);
         else
             debugln("\n[LED] " + String(key) + " is out of range for parameter COLOR!");
     }
@@ -775,8 +679,7 @@ bool serialCallback()
             EEPROM.commit();
             debugln("\n[LED] BRIGHTNESS was saved to " + String(key) + "!");
         }
-        else if (key == led_brtns)
-            ;
+        else if (key == led_brtns);
         else
             debugln("\n[LED] " + String(key) + " is out of range for parameter BRIGHTNESS!");
     }
@@ -790,8 +693,7 @@ bool serialCallback()
             writeSpeedEEPROM(led_speed);
             debugln("\n[LED] SPEED was saved to " + String(key) + "!");
         }
-        else if (key == led_speed)
-            ;
+        else if (key == led_speed);
         else
             debugln("\n[LED] " + String(key) + " is out of range for parameter SPEED!");
     }
@@ -801,11 +703,9 @@ bool serialCallback()
         if (payload.toInt() == 1)
         {
             uglwMotorBlock = true;
-            if (!emergency && serialInitDataReceived)
+            if (!emergency)
                 motorBlockTransition = true;
             EEPROM.write(motorBlockAdress, 1);
-            motorBlockageBrtnsBefore = led_brtns;
-            led_brtns = 0;
         }
         else if (payload.toInt() == 0)
         {
@@ -813,25 +713,8 @@ bool serialCallback()
             if (!emergency)
                 motorBlockTransition = true;
             EEPROM.write(motorBlockAdress, 0);
-            if (led_brtns == 0)
-                led_brtns = motorBlockageBrtnsBefore;
-        }
-        else if (payload.toInt() == 2)
-        {
-            uglwMotorBlock = false;
-            EEPROM.write(motorBlockAdress, 0);
-        }
-        else if (payload.toInt() == 3)
-        {
-            uglwMotorBlock = true;
-            EEPROM.write(motorBlockAdress, 1);
         }
         EEPROM.commit();
-        if (!serialInitDataReceived)
-        {
-            serialInitDataReceived = true;
-            debugln("[Serial] Received init Data!\n");
-        }
     }
     else if (String(topic) == transmission_topic)
     {
@@ -839,12 +722,10 @@ bool serialCallback()
         if (payload.toInt() == 1)
         {
             transDataReceived = true;
-            debugln("\n[TRANSMISSION] --- ENDS HERE ---\n");
         }
         else if (payload.toInt() == 0)
         {
             transDataReceived = false;
-            debugln("\n[TRANSMISSION] --- STARTS HERE ---\n");
         }
         else if (payload.toInt() == 999)
         {
@@ -865,7 +746,7 @@ bool serialCallback()
 
 bool checkSerial()
 {
-    if (millis() > (lastAliveMsg + aliveMsgTimeout) || !hostInitConnection)
+    if (millis() > lastAliveMsg + aliveMsgTimeout || !hostInitConnection)
     {
         serialConnected = false;
         setEmergencyMode();
@@ -873,7 +754,7 @@ bool checkSerial()
         unsigned long timer = 0;
         while (!serialConnected)
         {
-            if (millis() > (timer + 250)) // || (!hostInitConnection && millis() > (timer + 50))
+            if (millis() > timer + 250 || (!hostInitConnection && millis() > (timer + 50)))
             {
                 Serial.print("status!cnt-wtg$");
                 timer = millis();
