@@ -485,6 +485,12 @@
         <input type="text" onchange="updateSlider(this)" id="uglw_speed">
     </form>
     </p>
+    <p><span id="slider10ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT10%</span></p>
+    <p>
+    <form action="">
+        <input type="text" onchange="updateSlider(this)" id="transcoef">
+    </form>
+    </p>
     <hr>
 
     <!-- Fade Button -->
@@ -518,6 +524,12 @@
     <p>
     <form action="">
         <input type="text" onchange="updateSlider(this)" id="batvoltoffset">
+    </form>
+    </p>
+    <p><span id="slider9ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT9%</span></p>
+    <p>
+    <form action="">
+        <input type="text" onchange="updateSlider(this)" id="batvoltoffsetmotor">
     </form>
     </p>
     <hr>
@@ -710,6 +722,26 @@
             xhttp.open("GET", "/favoriteUGLWMode", true);
             xhttp.send();
         }
+        function slider9UpdateText() {
+            var xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function () {
+                if (this.readyState == 4 && this.status == 200) {
+                    document.getElementById("slider9ValueText").innerHTML = this.responseText;
+                }
+            };
+            xhttp.open("GET", "/batVoltOffsetMotor", true);
+            xhttp.send();
+        }
+        function slider10UpdateText() {
+            var xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function () {
+                if (this.readyState == 4 && this.status == 200) {
+                    document.getElementById("slider10ValueText").innerHTML = this.responseText;
+                }
+            };
+            xhttp.open("GET", "/transCoef", true);
+            xhttp.send();
+        }
         function starStateUpdateText() {
             var xhttp = new XMLHttpRequest();
             xhttp.onreadystatechange = function () {
@@ -777,6 +809,8 @@
             slider6UpdateText();
             slider7UpdateText();
             slider8UpdateText();
+            slider9UpdateText();
+            slider10UpdateText();
             starStateUpdateText();
             tflStateUpdateText();
         }, 250);

@@ -36,6 +36,10 @@
 #define debugln(x)
 #endif
 
+// IOs
+#define LED_PIN 5     // D1
+#define RELAY_PIN 4   // D2
+
 // EEPROM
 #define apiOverrideOffAdress 0
 #define modeAdress 1
@@ -49,7 +53,6 @@
 
 // WS2812 LEDs
 #define LED_COUNT 300 // INCREASE THIS !!! 300 only for testbench
-#define LED_PIN 5     // D1
 
 // Serial Client Topics
 #define status_topic "status"
@@ -60,6 +63,7 @@
 #define speed_topic "speed"
 #define motor_topic "motor"
 #define transmission_topic "trans"
+#define transitionCoefficient_topic "transCoef"
 
 //***** VARIABLES & OBJECTS *****
 bool apiOverrideOff;
@@ -96,6 +100,7 @@ bool transitionActive = false;
 bool transDown = false;
 bool transUp = false;
 bool activeStrip = true; // true = 1 | false = 2
+float transCoef = 1.18;
 
 struct
 {
@@ -162,6 +167,8 @@ void setup()
 
     // IOs
     pinMode(LED_BUILTIN, OUTPUT);
+    pinMode(RELAY_PIN, OUTPUT);
+    digitalWrite(RELAY_PIN, HIGH); // Activate "power" to ws2812 strips
 
     // Get EEPROM memory
     initLastState();
@@ -226,7 +233,7 @@ void saveStripParams(bool strip)
 unsigned int brtnsMathFct(unsigned int curBrtns)
 {
     float curBrtnsF = (float)curBrtns / 100;
-    return (unsigned int)exp(1.18 * curBrtnsF);
+    return (unsigned int)exp(transCoef * curBrtnsF);
 }
 
 void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 = mode change | 2 = motor start | 3 = motor stop
@@ -861,6 +868,11 @@ bool serialCallback()
         {
             transitionTimeMode = payload.toInt() * 100; // f.e. 20 * 100 = 2000ms
         }
+    }
+    else if (String(topic) == transitionCoefficient_topic)
+    {
+        debugln("[Serial] Subscribed topic - Transition Coefficient: " + String(payload));
+        transCoef = payload.toFloat();
     }
     else
     {

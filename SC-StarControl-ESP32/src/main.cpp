@@ -111,6 +111,9 @@
 #define favoriteSpeedAdress1 31
 #define favoriteSpeedAdress2 32
 #define uglwTFLRestrictionAdress 33
+#define transitionCoefficientAdress 34
+#define batVoltOffsetMotorAdress 38
+// continue at adress 42
 
 // Inputs
 #define tflPin 14     // D5 - Tagfahrlicht             - Type: PWM
@@ -150,6 +153,7 @@
 #define speed_topic "speed"
 #define fxmode_topic "fxmode"
 #define motor_topic "motor"
+#define transitionCoefficient_topic "transCoef"
 
 #define emergency_avemsg "emeg_ave"
 #define starhost_avemsg "host_ave"
@@ -257,7 +261,7 @@ const char *PARAM_INPUT_2 = "state";
 const char *PARAM_INPUT_3 = "value";
 bool buttonStates[5] = {false, false, false, false, false}; // 0 - Strobe, 1 - Fade, 2 - MREST Star, 3 - MREST UGLW, 4 - TFLREST UGLW
 unsigned int sliderValues[6] = {3, 3, 2, 2, 0, 0};          // 0 - Star, 1 - TFL, 2 - Star Fade Time, 3 - TFL Fade Time, 4 - UGLW Brtns, 5 - UGLW Speed
-float sliderValuesFloat[2] = {12.0, 0};                     // 0 - BatVoltThreshold, 1 - BatVoltOffset
+float sliderValuesFloat[4] = {12.0, 0, 1.18, 0};            // 0 - batVoltTresh | 1 - batVoltOffset | 2 - TransCoef | 3 - batVoltOffsetMotor                     // 0 - BatVoltThreshold, 1 - BatVoltOffset
 
 // WS2812 LEDs
 unsigned int led_mode = 0;
@@ -278,6 +282,7 @@ unsigned int favoriteMode;
 unsigned int favoriteColor;
 unsigned int favoriteBrtns;
 unsigned int favoriteSpeed;
+float transitionCoefficient;
 
 // Battery Voltage
 unsigned long lastADCVal = 0;
@@ -291,7 +296,7 @@ const float resistor2 = 47340;  // 47k
 float batVoltOffset;
 bool batteryEmergency = false;
 float batteryThreshold;
-const float motorVoltOffset = -0.5;
+float motorVoltOffset;
 
 // Startup
 bool checkedInputs = false;
@@ -352,7 +357,7 @@ String readWebBtn(int);
 String readWebSldr(int);
 void interpretSlider(int);
 void interpretButton(int);
-void uglw_sendValue(unsigned int, unsigned int, bool);
+void uglw_sendValue(unsigned int, float, bool);
 void ledsCustomShow();
 void mqttAliveMessage();
 void onMqttMessage(char *, char *, AsyncMqttClientMessageProperties, size_t, size_t, size_t);
@@ -377,7 +382,7 @@ void setup()
   }
   ledSerial.begin(115200);
   ledSerial.setTimeout(3);
-  EEPROM.begin(34);
+  EEPROM.begin(42);
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
@@ -1641,6 +1646,44 @@ void initLastState()
 
   buttonStates[4] = uglwTFLRestriction;
 
+  // UGLW Transition Coefficient
+  float transCoef;
+  EEPROM.get(transitionCoefficientAdress, transCoef); // read EEPROM
+
+  debugln("[EEPROM] Transition Coefficient: " + String(transCoef));
+
+  if (transCoef >= -5.0 && transCoef <= 5.0)
+  {
+    transitionCoefficient = transCoef;
+  }
+  else // if no logic state
+  {
+    debugln("[EEPROM] Reading failed - Transition Coefficient - Setting to 1.18");
+    transCoef = 1.18;
+    EEPROM.put(transitionCoefficientAdress, transCoef);
+  }
+
+  sliderValuesFloat[2] = transCoef;
+
+  // Batvolt Motor Offset
+  float batVoltOfMo;
+  EEPROM.get(batVoltOffsetMotorAdress, batVoltOfMo); // read EEPROM
+
+  debugln("[EEPROM] Battery-Voltage Motor Offset: " + String(batVoltOfMo));
+
+  if (batVoltOfMo >= -5.0 && batVoltOfMo <= 5.0)
+  {
+    motorVoltOffset = batVoltOfMo;
+  }
+  else // if no logic state
+  {
+    debugln("[EEPROM] Reading failed - Battery-Voltage Motor Offset");
+    motorVoltOffset = 0.0;
+    EEPROM.put(batVoltOffsetMotorAdress, motorVoltOffset);
+  }
+
+  sliderValuesFloat[3] = motorVoltOffset;
+
   EEPROM.commit();
 
   debugln("[EEPROM] Extraction completed!");
@@ -1876,6 +1919,16 @@ String processor(const String &var)
     String retval = "Favorite Mode: " + String(favoriteMode);
     return retval;
   }
+  if (var == "SLIDERTEXT9")
+  {
+    String retval = "Battery-Voltage Motor Offset: " + String(sliderValuesFloat[3]) + " Volt";
+    return retval;
+  }
+  if (var == "SLIDERTEXT10")
+  {
+    String retval = "Transition Coefficient: " + String(sliderValuesFloat[2]);
+    return retval;
+  }
   return String();
 }
 
@@ -1928,12 +1981,16 @@ void assignServerHandlers()
                   sliderID = "5";
                 else if (String(request->getParam(PARAM_INPUT_1)->value()) == "batvoltoffset")
                   sliderID = "7";
+                else if (String(request->getParam(PARAM_INPUT_1)->value()) == "transcoef")
+                  sliderID = "8";
+                else if (String(request->getParam(PARAM_INPUT_1)->value()) == "batvoltoffsetmotor")
+                  sliderID = "9";
                 else if (String(request->getParam(PARAM_INPUT_1)->value()) == "favoriteUGLWMode")
-                  sliderID = "10";
+                  sliderID = "11";
                 sliderValue = request->getParam(PARAM_INPUT_3)->value();
-                if (sliderID.toInt() == 6 || sliderID.toInt() == 7)
+                if (sliderID.toInt() == 6 || sliderID.toInt() == 7 || sliderID.toInt() == 8 || sliderID.toInt() == 9)
                   sliderValuesFloat[sliderID.toInt() - 6] = sliderValue.toFloat();
-                else if (sliderID.toInt() == 10 && sliderValue.toInt() >= 0 && sliderValue.toInt() <= 56)
+                else if (sliderID.toInt() == 11 && sliderValue.toInt() >= 0 && sliderValue.toInt() <= 56)
                 {
                   favoriteMode = sliderValue.toInt();
                   favoriteColor = led_color;
@@ -2024,6 +2081,16 @@ void assignServerHandlers()
   server.on("/favoriteUGLWMode", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               String retval = "Favorite Mode: " + String(favoriteMode);
+              request->send_P(200, "text/plain", retval.c_str()); });
+
+  server.on("/batVoltOffsetMotor", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+              String retval = "Battery-Voltage Motor Offset: " + String(motorVoltOffset) + " Volt";
+              request->send_P(200, "text/plain", retval.c_str()); });
+
+  server.on("/transCoef", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+              String retval = "Transition Coefficient: " + String(transitionCoefficient);
               request->send_P(200, "text/plain", retval.c_str()); });
 }
 
@@ -2249,7 +2316,22 @@ void interpretSlider(int id)
     EEPROM.put(batVoltOffsetAdress, batVoltOffset);
     EEPROM.commit();
   }
-  else if (id == 10) // *** FAVORITE MODE INPUTTEXT ***
+  else if (id == 8) // *** TRANSITION COEFFICIENT ***
+  {
+    debugln("[HTTP] Transition Coefficient " + String(sliderValuesFloat[2]) + " was selected!");
+    transitionCoefficient = sliderValuesFloat[2];
+    uglw_sendValue(6, transitionCoefficient);
+    EEPROM.put(transitionCoefficientAdress, transitionCoefficient);
+    EEPROM.commit();
+  }
+  else if (id == 9) // *** BATVOLT OFFSET MOTOR INPUTTEXT ***
+  {
+    debugln("[HTTP] Battery-Voltage Offset Motor " + String(sliderValuesFloat[3]) + " Volt was selected!");
+    motorVoltOffset = sliderValuesFloat[3];
+    EEPROM.put(batVoltOffsetMotorAdress, motorVoltOffset);
+    EEPROM.commit();
+  }
+  else if (id == 11) // *** FAVORITE MODE INPUTTEXT ***
   {
     debugln("[HTTP] Favorite UGLW Mode " + String(favoriteMode) + " was selected!");
     EEPROM.write(favoriteModeAdress, favoriteMode);
@@ -2360,13 +2442,14 @@ void interpretButton(int id)
 }
 
 // Underglow Handlers
-void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite = false) // 0 - mode | 1 - color | 2 - brtns | 3 - speed | 4 - Motor-Restriction | 5 - Data-Transmission
+void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) // 0 - mode | 1 - color | 2 - brtns | 3 - speed | 4 - Motor-Restriction | 5 - Data-Transmission | 6 - Transition Coefficient
 {
   String retval = "";
   unsigned int payload = 0;
   if (dropdown == 0 && key >= 0 && key <= 56) // Mode
   {
-    switch (key)
+    unsigned int keyI = (unsigned int)key;
+    switch (keyI)
     {
     case 0:
       retval = "Mode Static";
@@ -2490,26 +2573,27 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite = fa
       break;
 
     default:
-      retval = "Mode " + String(key);
+      retval = "Mode " + String(keyI);
       break;
     }
     if (overwrite)
     {
       debugln("\n[LED] Mode was changed!");
-      led_mode = key;
-      EEPROM.write(modeAdress, key);
+      led_mode = keyI;
+      EEPROM.write(modeAdress, keyI);
       EEPROM.commit();
       if (selectedMode == 1)
-        ledSerial.print("mode!" + String(key) + "$");
+        ledSerial.print("mode!" + String(keyI) + "$");
       else if (selectedMode == 2)
         mqttClient.publish(fxmode_topic, 0, 0, "2");
     }
     else
-      ledSerial.print("mode!" + String(key) + "$");
+      ledSerial.print("mode!" + String(keyI) + "$");
   }
   else if (dropdown == 1 && key >= 0 && key <= 16777215) // Color
   {
-    switch (key)
+    unsigned int keyI = (unsigned int)key;
+    switch (keyI)
     {
     case 0:
       retval = "Color Red";
@@ -2553,8 +2637,8 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite = fa
       break;
 
     default:
-      retval = "Color " + String(key);
-      payload = key;
+      retval = "Color " + String(keyI);
+      payload = keyI;
       break;
     }
     if (overwrite)
@@ -2570,7 +2654,8 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite = fa
   }
   else if (dropdown == 2 && key >= 0 && key <= 255) // Brtns
   {
-    retval = "Brightness " + String(key);
+    unsigned int keyI = (unsigned int)key;
+    retval = "Brightness " + String(keyI);
     if (overwrite)
     {
       debugln("\n[LED] Brtns was changed!");
@@ -2578,33 +2663,41 @@ void uglw_sendValue(unsigned int dropdown, unsigned int key, bool overwrite = fa
       EEPROM.write(brtnsAdress, sliderValues[4]);
       EEPROM.commit();
       if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("brtns!" + String(key) + "$");
+        ledSerial.print("brtns!" + String(keyI) + "$");
     }
     else
-      ledSerial.print("brtns!" + String(key) + "$");
+      ledSerial.print("brtns!" + String(keyI) + "$");
   }
   else if (dropdown == 3 && key >= 0 && key <= 65535) // Speed
   {
-    retval = "Speed " + String(key);
+    unsigned int keyI = (unsigned int)key;
+    retval = "Speed " + String(keyI);
     if (overwrite)
     {
       debugln("\n[LED] Speed was changed!");
       led_speed = sliderValues[5];
       writeSpeedEEPROM(sliderValues[5], false);
       if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("speed!" + String(key) + "$");
+        ledSerial.print("speed!" + String(keyI) + "$");
     }
     else
-      ledSerial.print("speed!" + String(key) + "$");
+      ledSerial.print("speed!" + String(keyI) + "$");
   }
   else if (dropdown == 4 && key >= 0 && key <= 3)
   {
-    ledSerial.print("motor!" + String(key) + "$");
-    retval = "Motor-Restriction " + String(key);
+    unsigned int keyI = (unsigned int)key;
+    ledSerial.print("motor!" + String(keyI) + "$");
+    retval = "Motor-Restriction " + String(keyI);
   }
   else if (dropdown == 5)
   {
-    ledSerial.print("trans!" + String(key) + "$");
+    unsigned int keyI = (unsigned int)key;
+    ledSerial.print("trans!" + String(keyI) + "$");
+    retval = "Data-Transmission " + String(keyI);
+  }
+  else if (dropdown == 6)
+  {
+    ledSerial.print(String(transitionCoefficient_topic) + "!" + String(key) + "$");
     retval = "Data-Transmission " + String(key);
   }
   debugln("\n[HTTP] Underglow " + retval + " was selected!");
@@ -3000,6 +3093,7 @@ void serialLEDHandler()
         delay(10);
         ledSerial.print(lastSerialMsg);
         uglwTFLRestrictionHandler();
+        uglw_sendValue(6, transitionCoefficient);
         if (uglwMotorBlock || uglwTFLRestActive)
           uglw_sendValue(4, 1U, true);
         else if (!uglwMotorBlock && !uglwTFLRestActive)
