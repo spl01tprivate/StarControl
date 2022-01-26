@@ -188,7 +188,7 @@ bool starMotorRestriction; // stores whether star is restricted to be off, when 
 
 // TFL Options
 bool tflSoll; // stores whether tfl led on / off in manually mode
-bool tflMode; // stores automatic or manually mode
+bool tflMode; // true = automatic - false = manually
 
 // Motor State
 bool motorRunning = false; // stores motor running
@@ -315,6 +315,7 @@ bool uglwStarted = false;
 
 //***** PROTOTYPES *****
 void handlers();
+void startupHandler();
 void initLastState();
 void writeColorEEPROM(unsigned int, bool);
 unsigned int readColorEEPROM(bool);
@@ -419,6 +420,13 @@ void setup()
   digitalWrite(relaisTFLLPin, LOW);
   digitalWrite(relaisTFLRPin, LOW);
 
+  // WiFi
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  WiFi.mode(WIFI_MODE_STA);
+  WiFi.begin("NOBROWN", "OUT!");
+  delay(100);
+  WiFi.disconnect();
+
   // MQTT
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setClientId("starhost1");
@@ -448,12 +456,7 @@ void loop()
 
     uglwWriteOutput();
 
-    if (emergency)
-    {
-      starStarted = true;
-      tflStarted = true;
-      uglwStarted = true;
-    }
+    startupHandler();
   } while (!starStarted || !tflStarted || !uglwStarted);
 
   mqttAliveMessage();
@@ -471,6 +474,36 @@ void handlers()
 {
   ArduinoOTA.handle();
   yield();
+}
+
+void startupHandler()
+{
+  if (emergency)
+  {
+    starStarted = true;
+    tflStarted = true;
+    uglwStarted = true;
+  }
+  if (uglwTFLRestActive && starMode && !starStarted)
+  {
+    starStarted = true;
+    debugln("[StartUp] TFL Restriction active - Star turned off!");
+  }
+  if (uglwTFLRestActive && tflMode && !tflStarted)
+  {
+    tflStarted = true;
+    debugln("[StartUp] TFL Restriction active - TFL turned off!");
+  }
+  if (starMode == 0 && starSoll == 0 && starStarted)
+  {
+    starStarted = true;
+    debugln("[Star] Turned off!");
+  }
+  if (tflMode == 0 && tflSoll == 0 && !tflStarted)
+  {
+    tflStarted = true;
+    debugln("[TFL] Turned off!");
+  }
 }
 
 // Input Signals
@@ -2320,7 +2353,7 @@ void interpretSlider(int id)
   {
     debugln("[HTTP] Transition Coefficient " + String(sliderValuesFloat[2]) + " was selected!");
     transitionCoefficient = sliderValuesFloat[2];
-    uglw_sendValue(6, transitionCoefficient);
+    uglw_sendValue(6, transitionCoefficient, false);
     EEPROM.put(transitionCoefficientAdress, transitionCoefficient);
     EEPROM.commit();
   }
@@ -2962,7 +2995,6 @@ bool checkWiFi()
     if (mqttClient.connected())
       mqttClient.disconnect();
     WiFi.begin(APSSID, APPSK);
-    WiFi.setTxPower(WIFI_POWER_19_5dBm);
     debug("\n[WiFi] Establishing WiFi connection");
     unsigned long counter = 0;
     int retryCounter = 0;
@@ -2973,8 +3005,11 @@ bool checkWiFi()
         counter = millis();
         debug(".");
         retryCounter++;
-        if (retryCounter > 14)
+        if (retryCounter > 24)
         {
+          EEPROM.write(apiOverrideOffAdress, 1);
+          EEPROM.commit();
+          setEmergencyMode();
           debugln("\n[ESP] Restarting to get a fresh WiFi-connection!");
           ESP.restart();
         }
