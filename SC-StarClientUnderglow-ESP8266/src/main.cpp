@@ -52,7 +52,7 @@
 #define motorBlockAdress 8
 
 // WS2812 LEDs
-#define LED_COUNT 300 // INCREASE THIS !!! 300 only for testbench
+#define LED_COUNT 600 // INCREASE THIS !!! 300 only for testbench
 
 // Serial Client Topics
 #define status_topic "status"
