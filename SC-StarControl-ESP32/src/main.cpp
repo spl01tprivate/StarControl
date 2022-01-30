@@ -365,7 +365,7 @@ void onMqttMessage(char *, char *, AsyncMqttClientMessageProperties, size_t, siz
 void onMqttConnect(bool);
 bool checkMQTT();
 bool checkWiFi();
-void mqttAliveMessage();
+void beginWiFi();
 void setEmergencyMode();
 void resetEmergencyMode();
 void uglwWriteOutput();
@@ -387,6 +387,17 @@ void setup()
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
+
+  // WiFi
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  WiFi.mode(WIFI_MODE_STA);
+  WiFi.begin("NOBROWN", "OUT!");
+  delay(100);
+  WiFi.disconnect(true, true);
+
+  // Serial "hello world"
+  delay(50);
+  ledSerial.print("status!host-wasborn$");
 
   // Get EEPROM memory
   initLastState();
@@ -419,13 +430,6 @@ void setup()
   digitalWrite(relaisStarPin, LOW); // relais in beginnning off
   digitalWrite(relaisTFLLPin, LOW);
   digitalWrite(relaisTFLRPin, LOW);
-
-  // WiFi
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  WiFi.mode(WIFI_MODE_STA);
-  WiFi.begin("NOBROWN", "OUT!");
-  delay(100);
-  WiFi.disconnect();
 
   // MQTT
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
@@ -2950,7 +2954,7 @@ bool checkMQTT()
     while (!mqttClient.connected())
     {
       mqttClient.disconnect();
-      WiFi.disconnect();
+      WiFi.disconnect(true, true);
       while (WiFi.status() == WL_CONNECTED)
         ;
       checkWiFi();
@@ -2994,24 +2998,23 @@ bool checkWiFi()
   {
     if (mqttClient.connected())
       mqttClient.disconnect();
-    WiFi.begin(APSSID, APPSK);
-    debug("\n[WiFi] Establishing WiFi connection");
+    beginWiFi();
+    debug("\n[WiFi] Establishing WiFi connection as " + String(WiFi.getHostname()));
     unsigned long counter = 0;
     int retryCounter = 0;
     while (WiFi.status() != WL_CONNECTED)
     {
       if (millis() > (counter + 500))
       {
+        serialAliveMsg();
         counter = millis();
         debug(".");
         retryCounter++;
-        if (retryCounter > 24)
+        if (retryCounter > 40)
         {
-          EEPROM.write(apiOverrideOffAdress, 1);
-          EEPROM.commit();
-          setEmergencyMode();
-          debugln("\n[ESP] Restarting to get a fresh WiFi-connection!");
-          ESP.restart();
+          beginWiFi();
+          retryCounter = 0;
+          debug("\n[WiFi] Resetting module...");
         }
       }
       yield();
@@ -3033,6 +3036,17 @@ bool checkWiFi()
   }
   else
     return true;
+}
+
+void beginWiFi()
+{
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_OFF);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  WiFi.mode(WIFI_MODE_STA);
+  String hostname = "starhost-" + String(random(100));
+  WiFi.setHostname(hostname.c_str());
+  WiFi.begin(APSSID, APPSK);
 }
 
 // Emergency Handlers
