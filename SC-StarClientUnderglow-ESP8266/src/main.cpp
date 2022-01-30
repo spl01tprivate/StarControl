@@ -37,8 +37,8 @@
 #endif
 
 // IOs
-#define LED_PIN 5     // D1
-#define RELAY_PIN 4   // D2
+#define LED_PIN 5   // D1
+#define RELAY_PIN 4 // D2
 
 // EEPROM
 #define apiOverrideOffAdress 0
@@ -141,7 +141,6 @@ void applySettingsLED();
 void ledBlink();
 void ledBlinkError();
 void ledBlinkSuccess();
-bool checkSerial();
 void initLastState();
 void writeColorEEPROM(unsigned int);
 unsigned int readColorEEPROM();
@@ -151,6 +150,8 @@ void setEmergencyMode();
 void resetEmergencyMode();
 bool serialCallback();
 void reconnect();
+bool checkSerial();
+void initSerial();
 void serialEmergencyTOWD();
 
 //***** SETUP *****
@@ -246,7 +247,7 @@ void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 =
             unsigned int curBrtns = leds.getBrightness();
             if (curBrtns > 0)
             {
-                int newBrtns = curBrtns - brtnsMathFct(curBrtns); // TODO - Negative coefficient
+                int newBrtns = curBrtns - brtnsMathFct(curBrtns);
                 if (newBrtns < 0)
                     newBrtns = 0;
                 leds.setBrightness(newBrtns);
@@ -275,7 +276,7 @@ void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 =
             unsigned int curBrtns = leds.getBrightness();
             if (curBrtns < led_brtns)
             {
-                unsigned int newBrtns = curBrtns + brtnsMathFct(curBrtns); // TODO - Positive coefficient
+                unsigned int newBrtns = curBrtns + brtnsMathFct(curBrtns);
                 if (newBrtns > led_brtns)
                     newBrtns = led_brtns;
                 leds.setBrightness(newBrtns);
@@ -728,23 +729,33 @@ bool serialCallback()
         debugln("[Serial] Subscribed topic - Status: " + String(payload));
         if (payload == aliveMsg)
             lastAliveMsg = millis();
+        else if (payload == "host-wasborn")
+        {
+            initSerial();
+        }
     }
     else if (String(topic) == apiOvrOff_topic) // API Override Off Handler
     {
         debugln("[Serial] Subscribed topic - API Override Light Off: " + String(payload));
         if (payload == "1")
         {
-            apiOverrideOff = true;
-            setEmergencyMode();
-            EEPROM.write(apiOverrideOffAdress, 1);
-            EEPROM.commit();
+            if (!emergency)
+            {
+                apiOverrideOff = true;
+                setEmergencyMode();
+                EEPROM.write(apiOverrideOffAdress, 1);
+                EEPROM.commit();
+            }
         }
         else if (payload == "0")
         {
-            apiOverrideOff = false;
-            resetEmergencyMode();
-            EEPROM.write(apiOverrideOffAdress, 0);
-            EEPROM.commit();
+            if (emergency)
+            {
+                apiOverrideOff = false;
+                resetEmergencyMode();
+                EEPROM.write(apiOverrideOffAdress, 0);
+                EEPROM.commit();
+            }
         }
     }
     else if (String(topic) == mode_topic) // LED Mode Handler
@@ -814,21 +825,27 @@ bool serialCallback()
         debugln("[Serial] Subscribed topic - Underglow Motor-Blockage: " + String(payload));
         if (payload.toInt() == 1)
         {
-            uglwMotorBlock = true;
-            if (!emergency && serialInitDataReceived)
-                motorBlockTransition = true;
-            EEPROM.write(motorBlockAdress, 1);
-            motorBlockageBrtnsBefore = led_brtns;
-            led_brtns = 0;
+            if (!uglwMotorBlock)
+            {
+                uglwMotorBlock = true;
+                if (!emergency && serialInitDataReceived)
+                    motorBlockTransition = true;
+                EEPROM.write(motorBlockAdress, 1);
+                motorBlockageBrtnsBefore = led_brtns;
+                led_brtns = 0;
+            }
         }
         else if (payload.toInt() == 0)
         {
-            uglwMotorBlock = false;
-            if (!emergency)
-                motorBlockTransition = true;
-            EEPROM.write(motorBlockAdress, 0);
-            if (led_brtns == 0)
-                led_brtns = motorBlockageBrtnsBefore;
+            if (uglwMotorBlock)
+            {
+                uglwMotorBlock = false;
+                if (!emergency)
+                    motorBlockTransition = true;
+                EEPROM.write(motorBlockAdress, 0);
+                if (led_brtns == 0)
+                    led_brtns = motorBlockageBrtnsBefore;
+            }
         }
         else if (payload.toInt() == 2)
         {
@@ -886,45 +903,50 @@ bool checkSerial()
 {
     if (millis() > (lastAliveMsg + aliveMsgTimeout) || !hostInitConnection)
     {
-        serialConnected = false;
         setEmergencyMode();
-        debug("\n[Serial-WD] Waiting for Serial Connection...");
-        unsigned long timer = 0;
-        while (!serialConnected)
-        {
-            if (millis() > (timer + 250)) // || (!hostInitConnection && millis() > (timer + 50))
-            {
-                Serial.print("status!cnt-wtg$");
-                timer = millis();
-            }
-            if (Serial.available())
-            {
-                debug("[Serial-WD] Message arrived - Topic: '");
-                String topic = Serial.readStringUntil('!');
-                debug(topic + "' - Payload: '");
-                String payload = Serial.readStringUntil('$');
-                debugln(payload + "'\n");
-
-                if (String(topic) == status_topic)
-                {
-                    if (String(payload) == aliveMsg)
-                    {
-                        serialConnected = true;
-                        hostInitConnection = true;
-                        lastAliveMsg = millis();
-                        delay(100);
-                        Serial.print("status!cnctd$");
-                    }
-                }
-            }
-            yield();
-        }
+        initSerial();
         digitalWrite(LED_BUILTIN, LOW); // Default on
         debugln("\n[Serial-WD] Host successfully connected!");
         return true;
     }
     else
         return true;
+}
+
+void initSerial()
+{
+    debug("\n[Serial-WD] Waiting for Serial Connection...");
+    serialConnected = false;
+    unsigned long timer = 0;
+    while (!serialConnected)
+    {
+        if (millis() > (timer + 250)) // || (!hostInitConnection && millis() > (timer + 50))
+        {
+            Serial.print("status!cnt-wtg$");
+            timer = millis();
+        }
+        if (Serial.available())
+        {
+            debug("[Serial-WD] Message arrived - Topic: '");
+            String topic = Serial.readStringUntil('!');
+            debug(topic + "' - Payload: '");
+            String payload = Serial.readStringUntil('$');
+            debugln(payload + "'\n");
+
+            if (String(topic) == status_topic)
+            {
+                if (String(payload) == aliveMsg || String(payload) == "host-wasborn")
+                {
+                    serialConnected = true;
+                    hostInitConnection = true;
+                    lastAliveMsg = millis();
+                    delay(100);
+                    Serial.print("status!cnctd$");
+                }
+            }
+        }
+        yield();
+    }
 }
 
 // Serial Timeout Watchdog
