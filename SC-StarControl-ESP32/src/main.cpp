@@ -304,6 +304,11 @@ bool starStarted = false;
 bool tflStarted = false;
 bool uglwStarted = false;
 
+// Wifi
+bool wifiInit = false;
+bool wifiGotConnected = false;
+bool wifiGotDisconnected = false;
+
 // Task Handler (Multithreading)
 /*void task1_handlers(void *pvParameters)
 {
@@ -363,9 +368,10 @@ void ledsCustomShow();
 void mqttAliveMessage();
 void onMqttMessage(char *, char *, AsyncMqttClientMessageProperties, size_t, size_t, size_t);
 void onMqttConnect(bool);
-bool checkMQTT();
-bool checkWiFi();
-void beginWiFi();
+void onMqttDisconnect(AsyncMqttClientDisconnectReason);
+void wifi_startConnection();
+void wifi_eventHandler();
+void checkWiFi();
 void setEmergencyMode();
 void resetEmergencyMode();
 void uglwWriteOutput();
@@ -392,16 +398,15 @@ void setup()
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
   WiFi.mode(WIFI_MODE_STA);
   WiFi.begin("NOBROWN", "OUT!");
-  delay(100);
   WiFi.disconnect(true, true);
+  WiFi.onEvent(wifi_eventHandler);
+  WiFi.setAutoReconnect(true);
 
   // Serial "hello world"
-  delay(50);
   ledSerial.print("status!host-wasborn$");
 
   // Get EEPROM memory
   initLastState();
-  delay(10);
 
   // IOs
   pinMode(tflPin, INPUT); // interrupt
@@ -435,6 +440,7 @@ void setup()
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setClientId("starhost1");
   mqttClient.onConnect(onMqttConnect);
+  mqttClient.onDisconnect(onMqttDisconnect);
   mqttClient.onMessage(onMqttMessage);
 
   // ADC
@@ -464,8 +470,6 @@ void loop()
   } while (!starStarted || !tflStarted || !uglwStarted);
 
   mqttAliveMessage();
-
-  checkMQTT();
 
   checkWiFi();
 
@@ -2740,7 +2744,7 @@ void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) //
   debugln("\n[HTTP] Underglow " + retval + " was selected!");
 }
 
-// MQTT
+// MQTT Handlers
 void mqttAliveMessage()
 {
   if (((millis() > (myLastAveMsg + aveMsgIntervall)) || (myLastAveMsg == 0U)) && mqttClient.connected())
@@ -2754,14 +2758,11 @@ void mqttAliveMessage()
     yourlastAveMsg = millis();
     setEmergencyMode();
     lostEmergencyConnection = true;
-    mqttClient.disconnect();
     debugln("\n[Timeout-WD] Emergency MQTT Client timed out!");
-    delay(20);
-    checkMQTT();
   }
-  else if (millis() == (yourlastAveMsg + aveMsgTimeout - 2000) && emgcyWasConnected)
+  else if (millis() == (yourlastAveMsg + aveMsgTimeout - 2000) && emgcyWasConnected && !lostEmergencyConnection)
     debugln("\n[Timeout-WD] Emergency MQTT Client silent -2 seconds...");
-  else if (millis() == (yourlastAveMsg + aveMsgTimeout - 1000) && emgcyWasConnected)
+  else if (millis() == (yourlastAveMsg + aveMsgTimeout - 1000) && emgcyWasConnected && !lostEmergencyConnection)
     debugln("\n[Timeout-WD] Emergency MQTT Client silent -1 second...");
 }
 
@@ -2931,7 +2932,11 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
 
 void onMqttConnect(bool sessionPresent)
 {
-  debugln("\n[MQTT] Connection succesful!");
+  lostEmergencyConnection = false;
+  yourlastAveMsg = millis();
+  if (!apiOverrideOff)
+    resetEmergencyMode();
+  debugln("\n[MQTT] Connected to broker!");
   mqttClient.subscribe(status_topic, 0);
   mqttClient.subscribe(apiOvrOff_topic, 0);
   mqttClient.subscribe(alive_topic, 0);
@@ -2941,87 +2946,107 @@ void onMqttConnect(bool sessionPresent)
   mqttClient.subscribe(speed_topic, 0);
   mqttClient.subscribe(fxmode_topic, 0);
   mqttClient.publish(status_topic, 0, false, "starhost1 active!");
-  delay(100);
 }
 
-bool checkMQTT()
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
 {
-  if (!mqttClient.connected())
+  uint8_t reasonInt = (int)reason;
+  debug("\n[MQTT] Disconnect reason: " + String(reasonInt) + " - ");
+  switch (reason)
   {
-    if (emgcyWasConnected)
-      setEmergencyMode();
-
-    while (!mqttClient.connected())
-    {
-      mqttClient.disconnect();
-      WiFi.disconnect(true, true);
-      while (WiFi.status() == WL_CONNECTED)
-        ;
-      checkWiFi();
-
-      debugln("\n[MQTT] Disconnected, trying to reconnect!");
-
-      mqttClient.clearQueue();
-      mqttClient.connect();
-
-      while (!mqttClient.connected())
-      {
-        delay(10);
-        if (WiFi.status() != WL_CONNECTED)
-        {
-          debugln("\n[MQTT] Aborted reconnection - no WiFi-Connection!");
-          checkWiFi();
-          debugln("\n[MQTT] Continuing reconnection - WiFi connected again!");
-          mqttClient.connect();
-        }
-      }
-
-      if (mqttClient.connected())
-      {
-        yourlastAveMsg = millis();
-        return true;
-      }
-      else
-      {
-        debugln("\n[MQTT] Reconnection failed - trying again!");
-      }
-    }
-    if (!apiOverrideOff)
-      resetEmergencyMode();
+  case AsyncMqttClientDisconnectReason::TCP_DISCONNECTED:
+    debugln("TCP_DISCONNECTED");
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_UNACCEPTABLE_PROTOCOL_VERSION:
+    debugln("MQTT_UNACCEPTABLE_PROTOCOL_VERSION");
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_IDENTIFIER_REJECTED:
+    debugln("MQTT_IDENTIFIER_REJECTED");
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_SERVER_UNAVAILABLE:
+    debugln("MQTT_SERVER_UNAVAILABLE");
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_MALFORMED_CREDENTIALS:
+    debugln("MQTT_MALFORMED_CREDENTIALS");
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_NOT_AUTHORIZED:
+    debugln("MQTT_NOT_AUTHORIZED");
+    break;
+  case AsyncMqttClientDisconnectReason::ESP8266_NOT_ENOUGH_SPACE:
+    debugln("ESP8266_NOT_ENOUGH_SPACE");
+    break;
+  case AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT:
+    debugln("TLS_BAD_FINGERPRINT");
+    break;
+  default:
+    break;
   }
-  return true;
+
+  mqttClient.clearQueue();
+  lostEmergencyConnection = true;
+  if (emgcyWasConnected)
+    setEmergencyMode();
 }
 
-bool checkWiFi()
+// WiFi Handlers
+void wifi_startConnection()
 {
-  if (WiFi.status() != WL_CONNECTED)
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  WiFi.mode(WIFI_MODE_STA);
+  String hostname = "starhost-" + String(random(100));
+  WiFi.setHostname(hostname.c_str());
+}
+
+void wifi_eventHandler(WiFiEvent_t event)
+{
+  switch (event)
   {
-    if (mqttClient.connected())
-      mqttClient.disconnect();
-    beginWiFi();
-    debug("\n[WiFi] Establishing WiFi connection as " + String(WiFi.getHostname()));
-    unsigned long counter = 0;
-    int retryCounter = 0;
-    while (WiFi.status() != WL_CONNECTED)
-    {
-      if (millis() > (counter + 500))
-      {
-        serialAliveMsg();
-        counter = millis();
-        debug(".");
-        retryCounter++;
-        if (retryCounter > 40)
-        {
-          beginWiFi();
-          retryCounter = 0;
-          debug("\n[WiFi] Resetting module...");
-        }
-      }
-      yield();
-    }
-    debug("\n[WiFi] Connection successful! (IP: ");
+  case SYSTEM_EVENT_WIFI_READY:
+    debugln("\n[WiFi] Interface ready!");
+    WiFi.begin(APSSID, APPSK);
+    break;
+
+  case SYSTEM_EVENT_STA_START:
+    debugln("\n[WiFi] Client started!");
+    break;
+
+  case SYSTEM_EVENT_STA_STOP:
+    debugln("\n[WiFi] Client stopped!");
+    break;
+
+  case SYSTEM_EVENT_STA_CONNECTED:
+    debugln("\n[WiFi] Connected to AP!");
+    break;
+
+  case SYSTEM_EVENT_STA_DISCONNECTED:
+    wifiGotDisconnected = true;
+    break;
+
+  case SYSTEM_EVENT_STA_GOT_IP:
+    wifiGotConnected = true;
+    break;
+
+  default:
+    break;
+  }
+}
+
+void checkWiFi()
+{
+  if (!wifiInit)
+  {
+    wifiInit = true;
+    wifi_startConnection();
+  }
+
+  if (wifiGotConnected)
+  {
+    wifiGotConnected = false;
+
+    // IP
+    debug("\n[WiFi] Obtained IP ");
     debug(WiFi.localIP());
-    debugln(")");
+    debugln("!");
 
     // OTA
     ArduinoOTA.setHostname("starhost");
@@ -3032,21 +3057,26 @@ bool checkWiFi()
     assignServerHandlers();
     server.begin();
     debugln("\n[HTTP] Webserver started!");
-    return true;
-  }
-  else
-    return true;
-}
 
-void beginWiFi()
-{
-  WiFi.disconnect(true, true);
-  WiFi.mode(WIFI_OFF);
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  WiFi.mode(WIFI_MODE_STA);
-  String hostname = "starhost-" + String(random(100));
-  WiFi.setHostname(hostname.c_str());
-  WiFi.begin(APSSID, APPSK);
+    // MQTT
+    mqttClient.connect();
+    debugln("\n[MQTT] Starting connection!");
+  }
+  else if (wifiGotDisconnected)
+  {
+    wifiGotDisconnected = false;
+
+    // Info
+    debugln("\n[WiFi] Disconnected from AP!");
+
+    // MQTT
+    mqttClient.disconnect();
+    debugln("\n[MQTT] Stopping connection!");
+
+    // WiFi Reconnect
+    WiFi.mode(WIFI_OFF);
+    wifi_startConnection();
+  }
 }
 
 // Emergency Handlers
