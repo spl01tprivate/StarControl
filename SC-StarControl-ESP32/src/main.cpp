@@ -161,6 +161,7 @@
 //***** VARIABLES & OBJECTS *****
 // Input State Variables
 bool tflBool = false;
+bool tflBoolBef = false;
 bool kl15Bool = false;
 bool kl50Bool = false;
 
@@ -570,7 +571,15 @@ void interpretInputs()
 
   do
   {
-    tflISRInterpret(); // V1.4 - TFL ISR checking for input signal type
+    if (selectedModeBef != 3)
+      tflISRInterpret(); // V1.4 - TFL ISR checking for input signal type
+    else
+    {
+      if (!checkedInputs)
+        checkedInputs = true;
+      if (!tflBool)
+        tflBool = true;
+    }
   } while (!checkedInputs);
 
   if (batteryVoltage <= batteryThreshold && !batteryEmergency) // Battery-Management
@@ -2821,6 +2830,8 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       selectedMode = 1;
       if (selectedModeBef == 4)
         strobeStop(false);
+      else if (selectedModeBef == 3)
+        tflBool = tflBoolBef;
       debugln("\n[MQTT] Subscribed topic - FX Mode Blackout");
       break;
 
@@ -2828,6 +2839,8 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       selectedMode = 2;
       if (selectedModeBef == 4)
         strobeStop(false);
+      else if (selectedModeBef == 3)
+        tflBool = tflBoolBef;
       if (strobeActiveMQTT)
       {
         selectedModeBef = 4;
@@ -2836,7 +2849,10 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
         uglw_sendValue(5, 0); // init data transmission
       uglw_sendValue(3, led_speed);
-      uglw_sendValue(2, led_brtns);
+      if (selectedModeBef != 3 || (selectedModeBef == 3 && tflBool))
+        uglw_sendValue(2, led_brtns);
+      else if (selectedModeBef == 3 && !tflBool)
+        uglw_sendValue(2, 0);
       uglw_sendValue(1, led_color);
       uglw_sendValue(0, led_mode);
       if (selectedModeBef == 2 || selectedModeBef == 3)
@@ -2855,6 +2871,7 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
 
     case 3:
       selectedMode = 3;
+      tflBoolBef = tflBool;
       if (selectedModeBef == 4)
         strobeStop(false);
       if (strobeActiveMQTT)
@@ -2886,6 +2903,8 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       selectedMode = 4;
       if (selectedModeBef == 2 || selectedModeBef == 3)
         uglw_sendValue(5, 0); // init data transmission
+      if (selectedModeBef == 3)
+        tflBool = tflBoolBef;
       uglw_sendValue(3, led_speed_strobe);
       uglw_sendValue(2, 255U);
       uglw_sendValue(1, 16777215);
@@ -3127,8 +3146,10 @@ void uglwWriteOutput()
     if (selectedModeBef == 1 || selectedModeBef == 2)
     {
       uglwMotorBlock = false;
+      if (!tflBoolBef)
+        uglw_sendValue(2, led_brtns);
       uglw_sendValue(5, 5);
-      uglw_sendValue(4, 0U, true);
+      uglw_sendValue(4, 0, true);
     }
   }
 }
