@@ -59,6 +59,7 @@
 #define brtns_topic "brtns"
 #define speed_topic "speed"
 #define fxmode_topic "fxmode"
+#define reset_topic "reset"
 
 #define emergency_avemsg "emeg_ave"
 #define starhost_avemsg "host_ave"
@@ -81,6 +82,9 @@ int ledBlinkCode = 0;
 int ledBlinkCounter = 0;
 bool ledBlinkInProgress = false;
 unsigned long ledBlinkLastBlink = 0;
+
+// Reset detection
+unsigned int lastModes[4] = {0, 0, 0, 0};
 
 // MQTT Broker
 // Prototypes
@@ -297,6 +301,30 @@ void interpretInputs()
       debugln(" - Emergency off!");
       debugln("\n" + mqttPublisher(apiOvrOff_topic, "0"));
       apiOverrideOff = false;
+    }
+
+    // Reset array
+    for (int i = 3; i > 0; i--)
+    {
+      lastModes[i] = lastModes[i - 1];
+    }
+    lastModes[0] = selectedMode;
+
+    if (lastModes[0] == 1 && lastModes[1] == 4 && lastModes[2] == 1 && lastModes[3] == 4)
+    {
+      debugln("\n[RESET] Detected reset request!");
+      debugln("\n" + mqttPublisher(reset_topic, "1"));
+      for (int i = 0; i < 10; i++)
+      {
+        yield();
+        delay(50);
+      }
+      WiFi.mode(WIFI_OFF);
+      delay(100);
+      debugln("\n*****************************************");
+      debugln("\n[RESET] Restarting at your wish master ;)");
+      debugln("\n*****************************************");
+      ESP.restart();
     }
   }
 }

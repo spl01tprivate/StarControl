@@ -64,6 +64,7 @@
 #define motor_topic "motor"
 #define transmission_topic "trans"
 #define transitionCoefficient_topic "transCoef"
+#define reset_topic "reset"
 
 //***** VARIABLES & OBJECTS *****
 bool apiOverrideOff;
@@ -733,6 +734,13 @@ bool serialCallback()
         {
             initSerial();
         }
+    }
+    else if (topic == reset_topic)
+    {
+        debugln("\n*****************************************");
+        debugln("\n[RESET] Restarting at your wish master ;)");
+        debugln("\n*****************************************");
+        ESP.restart();
     }
     else if (String(topic) == apiOvrOff_topic) // API Override Off Handler
     {

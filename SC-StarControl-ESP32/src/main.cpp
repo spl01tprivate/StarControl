@@ -154,6 +154,7 @@
 #define fxmode_topic "fxmode"
 #define motor_topic "motor"
 #define transitionCoefficient_topic "transCoef"
+#define reset_topic "reset"
 
 #define emergency_avemsg "emeg_ave"
 #define starhost_avemsg "host_ave"
@@ -2786,6 +2787,16 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
   {
     debugln("\n[MQTT] Subscribed topic - Status: " + payloadStr);
   }
+  else if (topicStr == reset_topic)
+  {
+    ledSerial.print(String(reset_topic) + "!1$");
+    WiFi.mode(WIFI_OFF);
+    delay(250);
+    debugln("\n*****************************************");
+    debugln("\n[RESET] Restarting at your wish master ;)");
+    debugln("\n*****************************************");
+    ESP.restart();
+  }
   else if (topicStr == apiOvrOff_topic)
   {
     if (payloadStr == "1")
@@ -2964,6 +2975,7 @@ void onMqttConnect(bool sessionPresent)
   mqttClient.subscribe(color_topic, 0);
   mqttClient.subscribe(speed_topic, 0);
   mqttClient.subscribe(fxmode_topic, 0);
+  mqttClient.subscribe(reset_topic, 0);
   mqttClient.publish(status_topic, 0, false, "starhost1 active!");
 }
 
