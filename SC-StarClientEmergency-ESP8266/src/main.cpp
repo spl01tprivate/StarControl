@@ -16,10 +16,12 @@
 */
 
 //***** INCLUDES *****
-#include <ESP8266WiFi.h>
-#include <ArduinoOTA.h>
+#include "Arduino.h"
 #include <EEPROM.h>
+#include <ESP8266WiFi.h>
 #include "uMQTTBroker.h"
+#include <ArduinoOTA.h>
+#include "Adafruit_NeoPixel.h"
 
 //***** DEFINES *****
 // Version
@@ -63,6 +65,10 @@
 
 #define emergency_avemsg "emeg_ave"
 #define starhost_avemsg "host_ave"
+
+// WS2812FX
+#define LED_PIN 13 // D7
+#define LED_COUNT 1
 
 //***** VARIABLES & OBJECTS *****
 // WiFi Variables
@@ -152,10 +158,14 @@ public:
 
 MQTTBroker broker;
 
+// WS2812FX Status Pixel
+Adafruit_NeoPixel leds(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+
 //***** PROTOTYPES *****
 void setup();
 void loop();
 void handlers();
+void statusPixel();
 void readInputs();
 void interpretInputs();
 void ledBlink();
@@ -204,6 +214,19 @@ void setup()
   debug(WiFi.softAPIP());
   debugln(")");
 
+  // LEDs
+  leds.begin();
+  leds.clear();
+
+  for (int i = 0; i < 65535; i++)
+  {
+    yield();
+    leds.setPixelColor(0, leds.ColorHSV(i));
+    leds.show();
+    i += (65535 / 1250);
+    delay(1);
+  }
+
   debugln("\n[StarControl-Client] Initialization completed...starting programm loop!\n");
 }
 
@@ -211,6 +234,8 @@ void setup()
 void loop()
 {
   handlers();
+
+  statusPixel();
 
   ledBlink();
 
@@ -227,6 +252,68 @@ void handlers()
 {
   ArduinoOTA.handle();
   yield();
+}
+
+// Status Pixel
+void statusPixel()
+{
+  static unsigned long timer = 0;
+
+  if (selectedMode == 1 || selectedMode == 2)
+  {
+    bool red = false;
+    bool green = false;
+    bool blue = true;
+
+    if (selectedMode == 1)
+      red = true;
+    else
+      red = false;
+
+    if (hostWasConnected)
+      green = true;
+
+    uint32_t color = 0;
+    if (red)
+      color += 0xFF0000;
+    if (green)
+      color += 0xFF00;
+    if (blue && !red && !green)
+      color += 0xFF;
+
+    if (leds.getPixelColor(0) != color)
+    {
+      leds.setPixelColor(0, color);
+      leds.setBrightness(255);
+      leds.show();
+    }
+  }
+  else if (selectedMode == 3 && millis() > timer + 50)
+  {
+    timer = millis();
+    static uint16_t colorWheel = 0;
+    leds.setPixelColor(0, leds.ColorHSV(colorWheel));
+    leds.show();
+    colorWheel += 750;
+    if (colorWheel > 65535)
+      colorWheel = 0;
+  }
+  else if (selectedMode == 4 && millis() > timer + 50)
+  {
+    timer = millis();
+    static bool strobeState = false;
+    if (strobeState)
+    {
+      leds.setPixelColor(0, 0xFFFFFF);
+      leds.show();
+    }
+    else
+    {
+      leds.setPixelColor(0, 0);
+      leds.show();
+    }
+    strobeState = !strobeState;
+  }
 }
 
 // Read Inputs
@@ -314,10 +401,13 @@ void interpretInputs()
     {
       debugln("\n[RESET] Detected reset request!");
       debugln("\n" + mqttPublisher(reset_topic, "1"));
-      for (int i = 0; i < 10; i++)
+      for (int i = 0; i < 65535; i++)
       {
         yield();
-        delay(50);
+        leds.setPixelColor(0, leds.ColorHSV(i));
+        leds.show();
+        i += (65535 / 1250);
+        delay(1);
       }
       WiFi.mode(WIFI_OFF);
       delay(100);
