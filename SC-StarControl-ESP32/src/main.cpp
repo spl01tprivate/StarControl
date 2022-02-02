@@ -94,9 +94,9 @@
 #define starMotorRestrictionAdress 8
 #define apiOverrideOffAdress 9
 #define modeAdress 10
-#define color1Adress 11 // 0x0000FF - Blue
-#define color2Adress 12 // 0x00FF00 - Green
-#define color3Adress 13 // 0xFF0000 - Red
+#define color1_1Adress 11 // 0x0000FF - Blue
+#define color1_2Adress 12 // 0x00FF00 - Green
+#define color1_3Adress 13 // 0xFF0000 - Red
 #define brtnsAdress 14
 #define speed1Adress 15 // 0x00FF
 #define speed2Adress 16 // 0xFF00 - 0 to 65535
@@ -104,16 +104,28 @@
 #define batVoltThresAdress 18
 #define batVoltOffsetAdress 22
 #define favoriteModeAdress 26
-#define favoriteColorAdress1 27
-#define favoriteColorAdress2 28
-#define favoriteColorAdress3 29
+#define favoriteColorAdress1_1 27
+#define favoriteColorAdress1_2 28
+#define favoriteColorAdress1_3 29
 #define favoriteBrtnsAdress 30
 #define favoriteSpeedAdress1 31
 #define favoriteSpeedAdress2 32
 #define uglwTFLRestrictionAdress 33
 #define transitionCoefficientAdress 34
 #define batVoltOffsetMotorAdress 38
-// continue at adress 42
+#define color2_1Adress 42
+#define color2_2Adress 43
+#define color2_3Adress 44
+#define color3_1Adress 45
+#define color3_2Adress 46
+#define color3_3Adress 47
+#define favoriteColorAdress2_1 48
+#define favoriteColorAdress2_2 49
+#define favoriteColorAdress2_3 50
+#define favoriteColorAdress3_1 51
+#define favoriteColorAdress3_2 52
+#define favoriteColorAdress3_3 53
+// continue at adress 54
 
 // Inputs
 #define tflPin 14     // D5 - Tagfahrlicht             - Type: PWM
@@ -137,8 +149,8 @@
 // Strobe Timings & Cycles
 #define strobePause 50
 #define strobeShortCycles 20
-#define led_mode_strobe 1
-#define led_speed_strobe 120
+#define LED_MODE_STROBE 1
+#define LED_SPEED_STROBE 120
 
 // TFL dimmed treshold
 #define tflDimTreshold 512
@@ -267,7 +279,9 @@ float sliderValuesFloat[4] = {12.0, 0, 1.18, 0};            // 0 - batVoltTresh 
 
 // WS2812 LEDs
 unsigned int led_mode = 0;
-unsigned int led_color = 0;
+unsigned int led_color1 = 0;
+unsigned int led_color2 = 0;
+unsigned int led_color3 = 0;
 unsigned int led_brtns = 0;
 unsigned int led_speed = 10000;
 bool uglwMotorRestriction = true;
@@ -281,7 +295,9 @@ unsigned int selectedModeBefStrobe;
 unsigned int led_mode_before = 0;
 unsigned int led_brtns_before = 0;
 unsigned int favoriteMode;
-unsigned int favoriteColor;
+unsigned int favoriteColor1;
+unsigned int favoriteColor2;
+unsigned int favoriteColor3;
 unsigned int favoriteBrtns;
 unsigned int favoriteSpeed;
 float transitionCoefficient;
@@ -324,8 +340,8 @@ bool wifiGotDisconnected = false;
 void handlers();
 void startupHandler();
 void initLastState();
-void writeColorEEPROM(unsigned int, bool);
-unsigned int readColorEEPROM(bool);
+void writeColorEEPROM(unsigned int, bool, unsigned int);
+unsigned int readColorEEPROM(bool, unsigned int);
 void writeSpeedEEPROM(unsigned int, bool);
 unsigned int readSpeedEEPROM(bool);
 void httpHandler();
@@ -391,7 +407,7 @@ void setup()
   }
   ledSerial.begin(115200);
   ledSerial.setTimeout(3);
-  EEPROM.begin(42);
+  EEPROM.begin(54);
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
@@ -1501,22 +1517,58 @@ void initLastState()
     EEPROM.write(modeAdress, led_mode); // then static
   }
 
-  // LEDs Color
-  unsigned int colorContent = readColorEEPROM(false);
+  // LEDs Color 1
+  unsigned int colorContent1 = readColorEEPROM(false, 1);
 
-  debugln("[EEPROM] LEDs - Color: " + String(colorContent));
+  debugln("[EEPROM] LEDs - Color 1: " + String(colorContent1));
 
-  if (colorContent >= 0 && colorContent <= 16777215)
+  if (colorContent1 >= 0 && colorContent1 <= 16777215)
   {
-    led_color = colorContent;
+    led_color1 = colorContent1;
   }
   else
   {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Color - Out of range (0x0-0xFFFFFF)!");
-    led_color = 0;
-    EEPROM.write(color1Adress, led_color); // then no color
-    EEPROM.write(color2Adress, led_color); // then no color
-    EEPROM.write(color3Adress, led_color); // then no color
+    debugln("[EEPROM] Reading was no valid option: LEDs - Color 1 - Out of range (0x0-0xFFFFFF)!");
+    led_color1 = 0;
+    EEPROM.write(color1_1Adress, led_color1); // then no color
+    EEPROM.write(color1_2Adress, led_color1); // then no color
+    EEPROM.write(color1_3Adress, led_color1); // then no color
+  }
+
+  // LEDs Color 2
+  unsigned int colorContent2 = readColorEEPROM(false, 2);
+
+  debugln("[EEPROM] LEDs - Color 2: " + String(colorContent2));
+
+  if (colorContent2 >= 0 && colorContent2 <= 16777215)
+  {
+    led_color2 = colorContent2;
+  }
+  else
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - Color 2 - Out of range (0x0-0xFFFFFF)!");
+    led_color2 = 0;
+    EEPROM.write(color2_1Adress, led_color2); // then no color
+    EEPROM.write(color2_2Adress, led_color2); // then no color
+    EEPROM.write(color2_3Adress, led_color2); // then no color
+  }
+
+  // LEDs Color 2
+  unsigned int colorContent3 = readColorEEPROM(false, 3);
+
+  debugln("[EEPROM] LEDs - Color 3: " + String(colorContent3));
+
+  if (colorContent3 >= 0 && colorContent3 <= 16777215)
+  {
+    led_color3 = colorContent3;
+  }
+  else
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - Color 3 - Out of range (0x0-0xFFFFFF)!");
+    led_color3 = 0;
+    EEPROM.write(color2_1Adress, led_color3); // then no color
+    EEPROM.write(color2_2Adress, led_color3); // then no color
+    EEPROM.write(color2_3Adress, led_color3); // then no color
   }
 
   // LEDs Brightness
@@ -1631,20 +1683,52 @@ void initLastState()
     favoriteMode = 0;
   }
 
-  // Favorite UGLW Color
-  unsigned int favColor = readColorEEPROM(true);
+  // Favorite UGLW Color 1
+  unsigned int favColor1 = readColorEEPROM(true, 1);
 
-  debugln("[EEPROM] Favorite UGLW Color: " + String(favColor));
+  debugln("[EEPROM] Favorite UGLW Color 1: " + String(favColor1));
 
-  if (favColor >= 0 && favColor <= 16777215)
+  if (favColor1 >= 0 && favColor1 <= 16777215)
   {
-    favoriteColor = favColor;
+    favoriteColor1 = favColor1;
   }
   else // if no logic state
   {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color - Out of range (0x0-0xFFFFFF)!");
-    writeColorEEPROM(0, true);
-    favoriteColor = 0;
+    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 1 - Out of range (0x0-0xFFFFFF)!");
+    writeColorEEPROM(0, true, 1U);
+    favoriteColor1 = 0;
+  }
+
+  // Favorite UGLW Color 2
+  unsigned int favColor2 = readColorEEPROM(true, 2);
+
+  debugln("[EEPROM] Favorite UGLW Color 2: " + String(favColor2));
+
+  if (favColor2 >= 0 && favColor2 <= 16777215)
+  {
+    favoriteColor2 = favColor2;
+  }
+  else // if no logic state
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 2 - Out of range (0x0-0xFFFFFF)!");
+    writeColorEEPROM(0, true, 1U);
+    favoriteColor2 = 0;
+  }
+
+  // Favorite UGLW Color 3
+  unsigned int favColor3 = readColorEEPROM(true, 3);
+
+  debugln("[EEPROM] Favorite UGLW Color 3: " + String(favColor3));
+
+  if (favColor3 >= 0 && favColor3 <= 16777215)
+  {
+    favoriteColor3 = favColor3;
+  }
+  else // if no logic state
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 3 - Out of range (0x0-0xFFFFFF)!");
+    writeColorEEPROM(0, true, 1U);
+    favoriteColor3 = 0;
   }
 
   // Favorite UGLW Brtns
@@ -1740,7 +1824,7 @@ void initLastState()
   debugln("[EEPROM] Extraction completed!");
 }
 
-void writeColorEEPROM(unsigned int key, bool favorite)
+void writeColorEEPROM(unsigned int key, bool favorite, unsigned int colorType)
 {
   int lowbit = key & 255;
   int midbit = (key >> 8) & 255;
@@ -1753,17 +1837,49 @@ void writeColorEEPROM(unsigned int key, bool favorite)
   debugln("MIDBIT: " + String(midbit, BIN));
   debugln("HIGHBIT: " + String(highbit, BIN));*/
 
-  EEPROM.write(favorite ? favoriteColorAdress1 : color1Adress, lowbit);  // Blue Bit
-  EEPROM.write(favorite ? favoriteColorAdress2 : color2Adress, midbit);  // Green Bit
-  EEPROM.write(favorite ? favoriteColorAdress3 : color3Adress, highbit); // Red Bit
+  if (colorType == 1)
+  {
+    EEPROM.write(favorite ? favoriteColorAdress1_1 : color1_1Adress, lowbit);  // Blue Bit
+    EEPROM.write(favorite ? favoriteColorAdress1_2 : color1_2Adress, midbit);  // Green Bit
+    EEPROM.write(favorite ? favoriteColorAdress1_3 : color1_3Adress, highbit); // Red Bit
+  }
+  else if (colorType == 2)
+  {
+    EEPROM.write(favorite ? favoriteColorAdress2_1 : color2_1Adress, lowbit);  // Blue Bit
+    EEPROM.write(favorite ? favoriteColorAdress2_2 : color2_2Adress, midbit);  // Green Bit
+    EEPROM.write(favorite ? favoriteColorAdress2_3 : color2_3Adress, highbit); // Red Bit
+  }
+  else if (colorType == 3)
+  {
+    EEPROM.write(favorite ? favoriteColorAdress3_1 : color3_1Adress, lowbit);  // Blue Bit
+    EEPROM.write(favorite ? favoriteColorAdress3_2 : color3_2Adress, midbit);  // Green Bit
+    EEPROM.write(favorite ? favoriteColorAdress3_3 : color3_3Adress, highbit); // Red Bit
+  }
   EEPROM.commit();
 }
 
-unsigned int readColorEEPROM(bool favorite)
+unsigned int readColorEEPROM(bool favorite, unsigned int colorType)
 {
-  int key = EEPROM.read(favorite ? favoriteColorAdress3 : color3Adress) << 8;     // Red Bit
-  key = (key + EEPROM.read(favorite ? favoriteColorAdress2 : color2Adress)) << 8; // Green Bit
-  key += EEPROM.read(favorite ? favoriteColorAdress1 : color1Adress);             // Blue Bit
+  int key;
+
+  if (colorType == 1)
+  {
+    key = EEPROM.read(favorite ? favoriteColorAdress1_3 : color1_3Adress) << 8;         // Red Bit
+    key = (key + EEPROM.read(favorite ? favoriteColorAdress1_2 : color1_2Adress)) << 8; // Green Bit
+    key += EEPROM.read(favorite ? favoriteColorAdress1_1 : color1_1Adress);             // Blue Bit
+  }
+  else if (colorType == 2)
+  {
+    key = EEPROM.read(favorite ? favoriteColorAdress2_3 : color2_3Adress) << 8;         // Red Bit
+    key = (key + EEPROM.read(favorite ? favoriteColorAdress2_2 : color2_2Adress)) << 8; // Green Bit
+    key += EEPROM.read(favorite ? favoriteColorAdress2_1 : color2_1Adress);             // Blue Bit
+  }
+  else if (colorType == 3)
+  {
+    key = EEPROM.read(favorite ? favoriteColorAdress3_3 : color3_3Adress) << 8;         // Red Bit
+    key = (key + EEPROM.read(favorite ? favoriteColorAdress3_2 : color3_2Adress)) << 8; // Green Bit
+    key += EEPROM.read(favorite ? favoriteColorAdress3_1 : color3_1Adress);             // Blue Bit
+  }
 
   /*debugln("\nKEY DEC: " + String(key));
   debugln("KEY HEX: " + String(key, HEX));
@@ -2044,7 +2160,9 @@ void assignServerHandlers()
                 else if (sliderID.toInt() == 11 && sliderValue.toInt() >= 0 && sliderValue.toInt() <= 56)
                 {
                   favoriteMode = sliderValue.toInt();
-                  favoriteColor = led_color;
+                  favoriteColor1 = led_color1;
+                  favoriteColor2 = led_color2;
+                  favoriteColor3 = led_color3;
                   favoriteBrtns = led_brtns;
                   favoriteSpeed = led_speed;
                 }
@@ -2109,7 +2227,7 @@ void assignServerHandlers()
               {
                 unsigned int dropdownID = request->getParam(PARAM_INPUT_1)->value().toInt();
                 unsigned int buttonID = request->getParam(PARAM_INPUT_3)->value().toInt();
-                if (dropdownID == 0 || dropdownID == 1)       //dropdown: 0 - underglow modes | 1 - colors
+                if (dropdownID == 0 || dropdownID == 1 || dropdownID == 7 || dropdownID == 8)       //dropdown: 0 - underglow modes | 1 - color1 | 7 - color2 | 8 - color3
                   uglw_sendValue(dropdownID, buttonID, true); //starting at 0
               }
               request->send(200, "text/plain", "OK"); });
@@ -2386,8 +2504,12 @@ void interpretSlider(int id)
   {
     debugln("[HTTP] Favorite UGLW Mode " + String(favoriteMode) + " was selected!");
     EEPROM.write(favoriteModeAdress, favoriteMode);
-    debugln("[HTTP] Favorite UGLW Color " + String(favoriteColor) + " was selected!");
-    writeColorEEPROM(favoriteColor, true);
+    debugln("[HTTP] Favorite UGLW Color 1 " + String(favoriteColor1) + " was selected!");
+    writeColorEEPROM(favoriteColor1, true, 1U);
+    debugln("[HTTP] Favorite UGLW Color 2 " + String(favoriteColor2) + " was selected!");
+    writeColorEEPROM(favoriteColor2, true, 2U);
+    debugln("[HTTP] Favorite UGLW Color 3 " + String(favoriteColor3) + " was selected!");
+    writeColorEEPROM(favoriteColor3, true, 3U);
     debugln("[HTTP] Favorite UGLW Brightness " + String(favoriteBrtns) + " was selected!");
     EEPROM.write(favoriteBrtnsAdress, favoriteBrtns);
     debugln("[HTTP] Favorite UGLW Speed " + String(favoriteSpeed) + " was selected!");
@@ -2647,23 +2769,162 @@ void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) //
     switch (keyI)
     {
     case 0:
-      retval = "Color Red";
+      retval = "Color 1 Red";
       payload = 16711680;
       break;
     case 1:
-      retval = "Color Green";
+      retval = "Color 1 Green";
       payload = 65280;
       break;
     case 2:
-      retval = "Color Blue";
+      retval = "Color 1 Blue";
       payload = 255;
       break;
     case 3:
-      retval = "Color White";
+      retval = "Color 1 White";
       payload = 16777215;
       break;
     case 4:
-      retval = "Color Yellow";
+      retval = "Color 1 Yellow";
+      payload = 16776960;
+      break;
+    case 5:
+      retval = "Color 1 Cyan";
+      payload = 65535;
+      break;
+    case 6:
+      retval = "Color 1 Magenta";
+      payload = 16711935;
+      break;
+    case 7:
+      retval = "Color 1 Purple";
+      payload = 4194432;
+      break;
+    case 8:
+      retval = "Color 1 Orange";
+      payload = 16723968;
+      break;
+    case 9:
+      retval = "Color 1 Pink";
+      payload = 16716947;
+      break;
+    case 10:
+      retval = "Color 1 Black";
+      payload = 0;
+      break;
+
+    default:
+      retval = "Color 1 " + String(keyI);
+      payload = keyI;
+      break;
+    }
+    if (overwrite)
+    {
+      debugln("\n[LED] Color 1 was changed!");
+      led_color1 = payload;
+      writeColorEEPROM(payload, false, 1U);
+      if (selectedMode == 1 || selectedMode == 2)
+        ledSerial.print("color1!" + String(payload) + "$");
+    }
+    else
+      ledSerial.print("color1!" + String(payload) + "$");
+  }
+  else if (dropdown == 7 && key >= 0 && key <= 16777215) // Color
+  {
+    unsigned int keyI = (unsigned int)key;
+    switch (keyI)
+    {
+    case 0:
+      retval = "Color 2 Red";
+      payload = 16711680;
+      break;
+    case 1:
+      retval = "Color 2 Green";
+      payload = 65280;
+      break;
+    case 2:
+      retval = "Color 2 Blue";
+      payload = 255;
+      break;
+    case 3:
+      retval = "Color 2 White";
+      payload = 16777215;
+      break;
+    case 4:
+      retval = "Color 2 Yellow";
+      payload = 16776960;
+      break;
+    case 5:
+      retval = "Color 2 Cyan";
+      payload = 65535;
+      break;
+    case 6:
+      retval = "Color 2 Magenta";
+      payload = 16711935;
+      break;
+    case 7:
+      retval = "Color 2 Purple";
+      payload = 4194432;
+      break;
+    case 8:
+      retval = "Color 2 Orange";
+      payload = 16723968;
+      break;
+    case 9:
+      retval = "Color 2 Pink";
+      payload = 16716947;
+      break;
+    case 10:
+      retval = "Color 2 Black";
+      payload = 0;
+
+    default:
+      if (keyI == 10)
+      {
+        retval = "Color 2 Black";
+        payload = 0;
+      }
+      else
+      {
+        retval = "Color 2 " + String(keyI);
+        payload = keyI;
+      }
+      break;
+    }
+    if (overwrite)
+    {
+      debugln("\n[LED] Color 2 was changed!");
+      led_color2 = payload;
+      writeColorEEPROM(payload, false, 2U);
+      if (selectedMode == 1 || selectedMode == 2)
+        ledSerial.print("color2!" + String(payload) + "$");
+    }
+    else
+      ledSerial.print("color2!" + String(payload) + "$");
+  }
+  else if (dropdown == 8 && key >= 0 && key <= 16777215) // Color
+  {
+    unsigned int keyI = (unsigned int)key;
+    switch (keyI)
+    {
+    case 0:
+      retval = "Color 3 Red";
+      payload = 16711680;
+      break;
+    case 1:
+      retval = "Color 3 Green";
+      payload = 65280;
+      break;
+    case 2:
+      retval = "Color 3 Blue";
+      payload = 255;
+      break;
+    case 3:
+      retval = "Color 3 White";
+      payload = 16777215;
+      break;
+    case 4:
+      retval = "Color 3 Yellow";
       payload = 16776960;
       break;
     case 5:
@@ -2671,37 +2932,48 @@ void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) //
       payload = 65535;
       break;
     case 6:
-      retval = "Color Magenta";
+      retval = "Color 3 Magenta";
       payload = 16711935;
       break;
     case 7:
-      retval = "Color Purple";
+      retval = "Color 3 Purple";
       payload = 4194432;
       break;
     case 8:
-      retval = "Color Orange";
+      retval = "Color 3 Orange";
       payload = 16723968;
       break;
     case 9:
-      retval = "Color Pink";
+      retval = "Color 3 Pink";
       payload = 16716947;
       break;
+    case 10:
+      retval = "Color 3 Black";
+      payload = 0;
 
     default:
-      retval = "Color " + String(keyI);
-      payload = keyI;
+      if (keyI == 10)
+      {
+        retval = "Color 3 Black";
+        payload = 0;
+      }
+      else
+      {
+        retval = "Color 3 " + String(keyI);
+        payload = keyI;
+      }
       break;
     }
     if (overwrite)
     {
-      debugln("\n[LED] Color was changed!");
-      led_color = payload;
-      writeColorEEPROM(payload, false);
+      debugln("\n[LED] Color 3 was changed!");
+      led_color3 = payload;
+      writeColorEEPROM(payload, false, 3U);
       if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("color!" + String(payload) + "$");
+        ledSerial.print("color3!" + String(payload) + "$");
     }
     else
-      ledSerial.print("color!" + String(payload) + "$");
+      ledSerial.print("color3!" + String(payload) + "$");
   }
   else if (dropdown == 2 && key >= 0 && key <= 255) // Brtns
   {
@@ -2864,7 +3136,9 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
         uglw_sendValue(2, led_brtns);
       else if (selectedModeBef == 3 && !tflBool)
         uglw_sendValue(2, 0);
-      uglw_sendValue(1, led_color);
+      uglw_sendValue(1, led_color1);
+      uglw_sendValue(7, led_color2);
+      uglw_sendValue(8, led_color3);
       uglw_sendValue(0, led_mode);
       if (selectedModeBef == 2 || selectedModeBef == 3)
         uglw_sendValue(5, 5); // transition duration 5ms * 100
@@ -2894,7 +3168,9 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
         uglw_sendValue(5, 0); // init data transmission
       uglw_sendValue(3, favoriteSpeed);
       uglw_sendValue(2, favoriteBrtns);
-      uglw_sendValue(1, favoriteColor);
+      uglw_sendValue(1, favoriteColor1);
+      uglw_sendValue(7, favoriteColor2);
+      uglw_sendValue(8, favoriteColor3);
       uglw_sendValue(0, favoriteMode);
       if (selectedModeBef == 2)
         uglw_sendValue(5, 5); // transition duration 5ms * 100
@@ -2916,10 +3192,12 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
         uglw_sendValue(5, 0); // init data transmission
       if (selectedModeBef == 3)
         tflBool = tflBoolBef;
-      uglw_sendValue(3, led_speed_strobe);
+      uglw_sendValue(3, LED_SPEED_STROBE);
       uglw_sendValue(2, 255U);
       uglw_sendValue(1, 16777215);
-      uglw_sendValue(0, led_mode_strobe);
+      uglw_sendValue(7, 0);
+      uglw_sendValue(8, 0);
+      uglw_sendValue(0, LED_MODE_STROBE);
       if (selectedModeBef == 2 || selectedModeBef == 3)
       {
         uglw_sendValue(5, 999); // transition duration 0ms

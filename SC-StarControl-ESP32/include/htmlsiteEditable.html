@@ -454,7 +454,7 @@
         </div>
     </div>
     <div class="dropdown1">
-        <button onmousedown="showDropdown(dropdownID1)" class="dropdownbtn1">Color</button>
+        <button onmousedown="showDropdown(dropdownID1)" class="dropdownbtn1">Color 1</button>
         <div id="dropdownID1" class="dropdown-content1">
             <a onmousedown="dropdownButtonPressed(1, 0)">Red</a>
             <a onmousedown="dropdownButtonPressed(1, 1)">Green</a>
@@ -466,6 +466,41 @@
             <a onmousedown="dropdownButtonPressed(1, 7)">Purple</a>
             <a onmousedown="dropdownButtonPressed(1, 8)">Orange</a>
             <a onmousedown="dropdownButtonPressed(1, 9)">Pink</a>
+            <a onmousedown="dropdownButtonPressed(1, 10)">Black</a>
+        </div>
+    </div>
+    <br>
+    <br>
+    <div class="dropdown1">
+        <button onmousedown="showDropdown(dropdownID7)" class="dropdownbtn1">Color 2</button>
+        <div id="dropdownID7" class="dropdown-content1">
+            <a onmousedown="dropdownButtonPressed(7, 0)">Red</a>
+            <a onmousedown="dropdownButtonPressed(7, 1)">Green</a>
+            <a onmousedown="dropdownButtonPressed(7, 2)">Blue</a>
+            <a onmousedown="dropdownButtonPressed(7, 3)">White</a>
+            <a onmousedown="dropdownButtonPressed(7, 4)">Yellow</a>
+            <a onmousedown="dropdownButtonPressed(7, 5)">Cyan</a>
+            <a onmousedown="dropdownButtonPressed(7, 6)">Magenta</a>
+            <a onmousedown="dropdownButtonPressed(7, 7)">Purple</a>
+            <a onmousedown="dropdownButtonPressed(7, 8)">Orange</a>
+            <a onmousedown="dropdownButtonPressed(7, 9)">Pink</a>
+            <a onmousedown="dropdownButtonPressed(7, 10)">Black</a>
+        </div>
+    </div>
+    <div class="dropdown1">
+        <button onmousedown="showDropdown(dropdownID8)" class="dropdownbtn1">Color 3</button>
+        <div id="dropdownID8" class="dropdown-content1">
+            <a onmousedown="dropdownButtonPressed(8, 0)">Red</a>
+            <a onmousedown="dropdownButtonPressed(8, 1)">Green</a>
+            <a onmousedown="dropdownButtonPressed(8, 2)">Blue</a>
+            <a onmousedown="dropdownButtonPressed(8, 3)">White</a>
+            <a onmousedown="dropdownButtonPressed(8, 4)">Yellow</a>
+            <a onmousedown="dropdownButtonPressed(8, 5)">Cyan</a>
+            <a onmousedown="dropdownButtonPressed(8, 6)">Magenta</a>
+            <a onmousedown="dropdownButtonPressed(8, 7)">Purple</a>
+            <a onmousedown="dropdownButtonPressed(8, 8)">Orange</a>
+            <a onmousedown="dropdownButtonPressed(8, 9)">Pink</a>
+            <a onmousedown="dropdownButtonPressed(8, 10)">Black</a>
         </div>
     </div>
     <p><span id="slider8ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT8%</span></p>
@@ -552,7 +587,7 @@
         function showDropdown(element) {
             var key = -1;
             if (element.id == "dropdownID0") key = 0;
-            else if (element.id == "dropdownID1") key = 1;
+            else if (element.id == "dropdownID1" || element.id == "dropdownID7" || element.id == "dropdownID8") key = 1;
             document.getElementById(element.id).classList.toggle("show" + key);
         }
 

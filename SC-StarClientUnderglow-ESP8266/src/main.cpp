@@ -43,22 +43,31 @@
 // EEPROM
 #define apiOverrideOffAdress 0
 #define modeAdress 1
-#define color1Adress 2 // 0x0000FF - Blue
-#define color2Adress 3 // 0x00FF00 - Green
-#define color3Adress 4 // 0xFF0000 - Red
+#define color1_1Adress 2 // 0x0000FF - Blue
+#define color1_2Adress 3 // 0x00FF00 - Green
+#define color1_3Adress 4 // 0xFF0000 - Red
 #define brtnsAdress 5
 #define speed1Adress 6 // 0x00FF
 #define speed2Adress 7 // 0xFF00 - 0 to 65535
 #define motorBlockAdress 8
+#define color2_1Adress 9  // 0x0000FF - Blue
+#define color2_2Adress 10 // 0x00FF00 - Green
+#define color2_3Adress 11 // 0xFF0000 - Red
+#define color3_1Adress 12 // 0x0000FF - Blue
+#define color3_2Adress 13 // 0x00FF00 - Green
+#define color3_3Adress 14 // 0xFF0000 - Red
+// continue at 15
 
 // WS2812 LEDs
-#define LED_COUNT 600 // INCREASE THIS !!! 300 only for testbench
+#define LED_COUNT 300 // TODO: INCREASE THIS !!! 300 only for testbench !!!
 
 // Serial Client Topics
 #define status_topic "status"
 #define apiOvrOff_topic "api/ovroff"
 #define mode_topic "mode"
-#define color_topic "color"
+#define color1_topic "color1"
+#define color2_topic "color2"
+#define color3_topic "color3"
 #define brtns_topic "brtns"
 #define speed_topic "speed"
 #define motor_topic "motor"
@@ -87,12 +96,17 @@ unsigned long ledBlinkLastBlink = 0;
 WS2812FX leds = WS2812FX(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 unsigned int led_mode;
-unsigned int led_color;
+unsigned int led_color1;
+unsigned int led_color2;
+unsigned int led_color3;
+uint32_t colors[3] = {BLACK, BLACK, BLACK};
 unsigned int led_brtns;
 unsigned int led_speed;
 
 unsigned int led_mode_bef = -1;
-unsigned int led_color_bef = -1;
+unsigned int led_color1_bef = -1;
+unsigned int led_color2_bef = -1;
+unsigned int led_color3_bef = -1;
 unsigned int led_brtns_bef = -1;
 unsigned int led_speed_bef = -1;
 
@@ -106,7 +120,7 @@ float transCoef = 1.18;
 struct
 {
     unsigned int led_mode;
-    unsigned int led_color;
+    uint32_t colors[3] = {BLACK, BLACK, BLACK};
     unsigned int led_brtns;
     unsigned int led_speed;
 } v1Strip;
@@ -114,7 +128,7 @@ struct
 struct
 {
     unsigned int led_mode;
-    unsigned int led_color;
+    uint32_t colors[3] = {BLACK, BLACK, BLACK};
     unsigned int led_brtns;
     unsigned int led_speed;
 } v2Strip;
@@ -143,8 +157,8 @@ void ledBlink();
 void ledBlinkError();
 void ledBlinkSuccess();
 void initLastState();
-void writeColorEEPROM(unsigned int);
-unsigned int readColorEEPROM();
+void writeColorEEPROM(unsigned int, unsigned int);
+unsigned int readColorEEPROM(unsigned int);
 void writeSpeedEEPROM(unsigned int);
 unsigned int readSpeedEEPROM();
 void setEmergencyMode();
@@ -162,7 +176,7 @@ void setup()
     if (DEBUG)
         Serial.begin(115200);
     Serial.setTimeout(3);
-    EEPROM.begin(9);
+    EEPROM.begin(15);
 
     debugln("\n[StarClient-Underglow] Starting programm ~ by spl01t*#7");
     debugln("[StarClient-Underglow] You are running version " + String(VERSION) + "!");
@@ -217,18 +231,22 @@ void saveStripParams(bool strip)
     if (strip) // V2
     {
         v2Strip.led_mode = led_mode;
-        v2Strip.led_color = led_color;
+        v2Strip.colors[0] = colors[0];
+        v2Strip.colors[1] = colors[1];
+        v2Strip.colors[2] = colors[2];
         v2Strip.led_brtns = led_brtns;
         v2Strip.led_speed = led_speed;
-        debugln("\n[TRANS] Prepared Virtual 2 - Mode: " + String(v2Strip.led_mode) + " - Color: " + String(v2Strip.led_color) + " - Brtns: " + String(v2Strip.led_brtns) + " - Speed: " + String(v2Strip.led_speed) + "\n");
+        debugln("\n[TRANS] Prepared Virtual 2 - Mode: " + String(v2Strip.led_mode) + " - Color 1: " + String(v2Strip.colors[0]) + " - Color 2: " + String(v2Strip.colors[1]) + " - Color 3: " + String(v2Strip.colors[2]) + " - Brtns: " + String(v2Strip.led_brtns) + " - Speed: " + String(v2Strip.led_speed) + "\n");
     }
     else // V1
     {
         v1Strip.led_mode = led_mode;
-        v1Strip.led_color = led_color;
+        v1Strip.colors[0] = colors[0];
+        v1Strip.colors[1] = colors[1];
+        v1Strip.colors[2] = colors[2];
         v1Strip.led_brtns = led_brtns;
         v1Strip.led_speed = led_speed;
-        debugln("\n[TRANS] Prepared Virtual 1 - Mode: " + String(v1Strip.led_mode) + " - Color: " + String(v1Strip.led_color) + " - Brtns: " + String(v1Strip.led_brtns) + " - Speed: " + String(v1Strip.led_speed) + "\n");
+        debugln("\n[TRANS] Prepared Virtual 1 - Mode: " + String(v1Strip.led_mode) + " - Color 1: " + String(v1Strip.colors[0]) + " - Color 2: " + String(v1Strip.colors[1]) + " - Color 3: " + String(v1Strip.colors[2]) + " - Brtns: " + String(v1Strip.led_brtns) + " - Speed: " + String(v1Strip.led_speed) + "\n");
     }
 }
 
@@ -261,12 +279,12 @@ void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 =
                 activeStrip = !activeStrip;
                 if (activeStrip)
                 {
-                    leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.led_color, v1Strip.led_speed);
+                    leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.colors, v1Strip.led_speed);
                     debugln("\n[TRANS] Reached half transition! - Loading settings V1\n");
                 }
                 else
                 {
-                    leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.led_color, v2Strip.led_speed);
+                    leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.colors, v2Strip.led_speed);
                     debugln("\n[TRANS] Reached half transition! - Loading settings V2\n");
                 }
                 ledBlinkCode = 1;
@@ -313,12 +331,12 @@ void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 =
             activeStrip = !activeStrip;
             if (activeStrip)
             {
-                leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.led_color, v1Strip.led_speed);
+                leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.colors, v1Strip.led_speed);
                 leds.setBrightness(v1Strip.led_brtns);
             }
             else
             {
-                leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.led_color, v2Strip.led_speed);
+                leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.colors, v2Strip.led_speed);
                 leds.setBrightness(v2Strip.led_brtns);
             }
             debugln("\n[TRANS] Finished static transition!\n");
@@ -355,14 +373,37 @@ void applySettingsLED()
             debugln("\n[LED] MODE was changed to " + String(led_mode) + "!");
         }
 
-        if (led_color != led_color_bef)
+        if (led_color1 != led_color1_bef)
         {
-            led_color_bef = led_color;
+            led_color1_bef = led_color1;
+            colors[0] = led_color1;
             if (!transitionChanges)
             {
-                leds.setColor(led_color);
+                leds.setColors(0, colors);
             }
-            debugln("\n[LED] COLOR was changed to " + String(led_color) + "!");
+            debugln("\n[LED] COLOR 1 was changed to " + String(led_color1) + "!");
+        }
+
+        if (led_color2 != led_color2_bef)
+        {
+            led_color2_bef = led_color2;
+            colors[1] = led_color2;
+            if (!transitionChanges)
+            {
+                leds.setColors(0, colors);
+            }
+            debugln("\n[LED] COLOR 2 was changed to " + String(led_color2) + "!");
+        }
+
+        if (led_color3 != led_color3_bef)
+        {
+            led_color3_bef = led_color3;
+            colors[2] = led_color3;
+            if (!transitionChanges)
+            {
+                leds.setColors(0, colors);
+            }
+            debugln("\n[LED] COLOR 3 was changed to " + String(led_color3) + "!");
         }
 
         if (led_brtns != led_brtns_bef)
@@ -537,21 +578,59 @@ void initLastState()
         EEPROM.write(modeAdress, led_mode); // then static
     }
 
-    // LEDs Color
-    unsigned int colorContent = readColorEEPROM();
+    // LEDs Color 1
+    unsigned int colorContent1 = readColorEEPROM(1);
 
-    debugln("[EEPROM] LEDs - Color: " + String(colorContent));
+    debugln("[EEPROM] LEDs - Color 1: " + String(colorContent1));
 
-    if (colorContent >= 0 && colorContent <= 16777215)
+    if (colorContent1 >= 0 && colorContent1 <= 16777215)
     {
-        led_color = colorContent;
+        led_color1 = colorContent1;
     }
     else
     {
-        debugln("[EEPROM] Reading was no valid option: LEDs - Color - Out of range (0x0-0xFFFFFF)!");
-        led_color = 0;
-        writeColorEEPROM(0);
+        debugln("[EEPROM] Reading was no valid option: LEDs - Color 1 - Out of range (0x0-0xFFFFFF)!");
+        led_color1 = 0;
+        writeColorEEPROM(0, 1);
     }
+
+    colors[0] = led_color1;
+
+    // LEDs Color 2
+    unsigned int colorContent2 = readColorEEPROM(2);
+
+    debugln("[EEPROM] LEDs - Color 2: " + String(colorContent2));
+
+    if (colorContent2 >= 0 && colorContent2 <= 16777215)
+    {
+        led_color2 = colorContent2;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Color 2 - Out of range (0x0-0xFFFFFF)!");
+        led_color2 = 0;
+        writeColorEEPROM(0, 2);
+    }
+
+    colors[1] = led_color2;
+
+    // LEDs Color 3
+    unsigned int colorContent3 = readColorEEPROM(3);
+
+    debugln("[EEPROM] LEDs - Color 3: " + String(colorContent3));
+
+    if (colorContent3 >= 0 && colorContent3 <= 16777215)
+    {
+        led_color3 = colorContent3;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Color 3 - Out of range (0x0-0xFFFFFF)!");
+        led_color3 = 0;
+        writeColorEEPROM(0, 3);
+    }
+
+    colors[2] = led_color3;
 
     // LEDs Brightness
     int brtnsContent = int(EEPROM.read(brtnsAdress));
@@ -609,7 +688,7 @@ void initLastState()
     debugln("[EEPROM] Extraction completed!");
 }
 
-void writeColorEEPROM(unsigned int key)
+void writeColorEEPROM(unsigned int key, unsigned int colorType)
 {
     int lowbit = key & 255;
     int midbit = (key >> 8) & 255;
@@ -622,23 +701,55 @@ void writeColorEEPROM(unsigned int key)
     debugln("MIDBIT: " + String(midbit, BIN));
     debugln("HIGHBIT: " + String(highbit, BIN));*/
 
-    EEPROM.write(color1Adress, lowbit);  // Blue Bit
-    EEPROM.write(color2Adress, midbit);  // Green Bit
-    EEPROM.write(color3Adress, highbit); // Red Bit
+    if (colorType == 1)
+    {
+        EEPROM.write(color1_1Adress, lowbit);  // Blue Bit
+        EEPROM.write(color1_2Adress, midbit);  // Green Bit
+        EEPROM.write(color1_3Adress, highbit); // Red Bit
+    }
+    else if (colorType == 2)
+    {
+        EEPROM.write(color2_1Adress, lowbit);  // Blue Bit
+        EEPROM.write(color2_2Adress, midbit);  // Green Bit
+        EEPROM.write(color2_3Adress, highbit); // Red Bit
+    }
+    else if (colorType == 3)
+    {
+        EEPROM.write(color3_1Adress, lowbit);  // Blue Bit
+        EEPROM.write(color3_2Adress, midbit);  // Green Bit
+        EEPROM.write(color3_3Adress, highbit); // Red Bit
+    }
     EEPROM.commit();
 }
 
-unsigned int readColorEEPROM()
+unsigned int readColorEEPROM(unsigned int colorType)
 {
-    int key = EEPROM.read(color3Adress) << 8;     // Red Bit
-    key = (key + EEPROM.read(color2Adress)) << 8; // Green Bit
-    key += EEPROM.read(color1Adress);             // Blue Bit
+    int key;
+
+    if (colorType == 1)
+    {
+        key = EEPROM.read(color1_3Adress) << 8;         // Red Bit
+        key = (key + EEPROM.read(color1_2Adress)) << 8; // Green Bit
+        key += EEPROM.read(color1_1Adress);             // Blue Bit
+    }
+    else if (colorType == 2)
+    {
+        key = EEPROM.read(color2_3Adress) << 8;         // Red Bit
+        key = (key + EEPROM.read(color2_2Adress)) << 8; // Green Bit
+        key += EEPROM.read(color2_1Adress);             // Blue Bit
+    }
+    else if (colorType == 3)
+    {
+        key = EEPROM.read(color3_3Adress) << 8;         // Red Bit
+        key = (key + EEPROM.read(color3_2Adress)) << 8; // Green Bit
+        key += EEPROM.read(color3_1Adress);             // Blue Bit
+    }
 
     /*debugln("\nKEY DEC: " + String(key));
     debugln("KEY HEX: " + String(key, HEX));
     debugln("KEY BIN: " + String(key, BIN));*/
 
-    return key;
+    return (unsigned int)key;
 }
 
 void writeSpeedEEPROM(unsigned int key)
@@ -690,14 +801,14 @@ void resetEmergencyMode()
     emergency = false;
     if (!uglwMotorBlock && serialInitDataReceived)
     {
-        leds.setSegment(0, 0, LED_COUNT - 1, led_mode, led_color, led_speed);
+        leds.setSegment(0, 0, LED_COUNT - 1, led_mode, led_color1, led_speed);
         leds.setBrightness(led_brtns);
         if (activeStrip)
             debugln("\n --- Virtual 1 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color: " + String(leds.getColor()) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
         else
             debugln("\n --- Virtual 2 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color: " + String(leds.getColor()) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
         led_mode_bef = led_mode;
-        led_color_bef = led_color;
+        led_color1_bef = led_color1;
         led_brtns_bef = led_brtns;
         led_speed_bef = led_speed;
     }
@@ -782,20 +893,53 @@ bool serialCallback()
         else
             debugln("\n[LED] " + String(key) + " is out of range for parameter MODE!");
     }
-    else if (String(topic) == color_topic) // LED Color Handler
+    else if (String(topic) == color1_topic) // LED Color Handler
     {
-        debugln("[Serial] Subscribed topic - Underglow Color: " + String(payload));
+        debugln("[Serial] Subscribed topic - Underglow Color 1: " + String(payload));
         unsigned int key = payload.toInt();
-        if (key >= 0 && key <= 16777215 && key != led_color)
+        if (key >= 0 && key <= 16777215 && key != led_color1)
         {
-            led_color = key;
-            writeColorEEPROM(led_color);
-            debugln("\n[LED] COLOR was saved to " + String(key) + "!");
+            led_color1 = key;
+            colors[0] = led_color1;
+            writeColorEEPROM(led_color1, 1);
+            debugln("\n[LED] COLOR 1 was saved to " + String(key) + "!");
         }
-        else if (key == led_color)
+        else if (key == led_color1)
             ;
         else
-            debugln("\n[LED] " + String(key) + " is out of range for parameter COLOR!");
+            debugln("\n[LED] " + String(key) + " is out of range for parameter COLOR 1!");
+    }
+    else if (String(topic) == color2_topic) // LED Color Handler
+    {
+        debugln("[Serial] Subscribed topic - Underglow Color 2: " + String(payload));
+        unsigned int key = payload.toInt();
+        if (key >= 0 && key <= 16777215 && key != led_color2)
+        {
+            led_color2 = key;
+            colors[1] = led_color2;
+            writeColorEEPROM(led_color2, 2);
+            debugln("\n[LED] COLOR 2 was saved to " + String(key) + "!");
+        }
+        else if (key == led_color2)
+            ;
+        else
+            debugln("\n[LED] " + String(key) + " is out of range for parameter COLOR 2!");
+    }
+    else if (String(topic) == color3_topic) // LED Color Handler
+    {
+        debugln("[Serial] Subscribed topic - Underglow Color 3: " + String(payload));
+        unsigned int key = payload.toInt();
+        if (key >= 0 && key <= 16777215 && key != led_color3)
+        {
+            led_color3 = key;
+            colors[2] = led_color3;
+            writeColorEEPROM(led_color3, 3);
+            debugln("\n[LED] COLOR 3 was saved to " + String(key) + "!");
+        }
+        else if (key == led_color3)
+            ;
+        else
+            debugln("\n[LED] " + String(key) + " is out of range for parameter COLOR 3!");
     }
     else if (String(topic) == brtns_topic) // LED Brightness Handler
     {
