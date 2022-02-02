@@ -56,7 +56,8 @@
 #define color3_1Adress 12 // 0x0000FF - Blue
 #define color3_2Adress 13 // 0x00FF00 - Green
 #define color3_3Adress 14 // 0xFF0000 - Red
-// continue at 15
+#define fadeSizeAdress 15 // 0xFF0000 - Red
+// continue at 16
 
 // WS2812 LEDs
 #define LED_COUNT 300 // TODO: INCREASE THIS !!! 300 only for testbench !!!
@@ -74,6 +75,7 @@
 #define transmission_topic "trans"
 #define transitionCoefficient_topic "transCoef"
 #define reset_topic "reset"
+#define fadeSize_topic "fadesize"
 
 //***** VARIABLES & OBJECTS *****
 bool apiOverrideOff;
@@ -102,6 +104,8 @@ unsigned int led_color3;
 uint32_t colors[3] = {BLACK, BLACK, BLACK};
 unsigned int led_brtns;
 unsigned int led_speed;
+uint8_t led_fadeSize;
+uint8_t fadeSize;
 
 unsigned int led_mode_bef = -1;
 unsigned int led_color1_bef = -1;
@@ -109,6 +113,7 @@ unsigned int led_color2_bef = -1;
 unsigned int led_color3_bef = -1;
 unsigned int led_brtns_bef = -1;
 unsigned int led_speed_bef = -1;
+uint8_t fadeSize_bef = -1;
 
 // Transition
 bool transitionActive = false;
@@ -123,6 +128,7 @@ struct
     uint32_t colors[3] = {BLACK, BLACK, BLACK};
     unsigned int led_brtns;
     unsigned int led_speed;
+    uint8_t led_fadeSize;
 } v1Strip;
 
 struct
@@ -131,6 +137,7 @@ struct
     uint32_t colors[3] = {BLACK, BLACK, BLACK};
     unsigned int led_brtns;
     unsigned int led_speed;
+    uint8_t led_fadeSize;
 } v2Strip;
 
 const unsigned int transitionTimeMotorBlock = 2000; // 1s to switch off uglw on starting motor
@@ -176,7 +183,7 @@ void setup()
     if (DEBUG)
         Serial.begin(115200);
     Serial.setTimeout(3);
-    EEPROM.begin(15);
+    EEPROM.begin(16);
 
     debugln("\n[StarClient-Underglow] Starting programm ~ by spl01t*#7");
     debugln("[StarClient-Underglow] You are running version " + String(VERSION) + "!");
@@ -191,7 +198,7 @@ void setup()
 
     // LEDs - 2 virtual strips to transition between
     leds.init();
-    leds.setSegment(0, 0, LED_COUNT - 1, 0U, 0U, 0U);
+    leds.setSegment(0, 0, LED_COUNT - 1, 0U, 0U, 0U, (uint8_t)0);
     leds.setBrightness(0);
     leds.start();
 
@@ -236,7 +243,8 @@ void saveStripParams(bool strip)
         v2Strip.colors[2] = colors[2];
         v2Strip.led_brtns = led_brtns;
         v2Strip.led_speed = led_speed;
-        debugln("\n[TRANS] Prepared Virtual 2 - Mode: " + String(v2Strip.led_mode) + " - Color 1: " + String(v2Strip.colors[0]) + " - Color 2: " + String(v2Strip.colors[1]) + " - Color 3: " + String(v2Strip.colors[2]) + " - Brtns: " + String(v2Strip.led_brtns) + " - Speed: " + String(v2Strip.led_speed) + "\n");
+        v2Strip.led_fadeSize = led_fadeSize;
+        debugln("\n[TRANS] Prepared Virtual 2 - Mode: " + String(v2Strip.led_mode) + " - Color 1: " + String(v2Strip.colors[0]) + " - Color 2: " + String(v2Strip.colors[1]) + " - Color 3: " + String(v2Strip.colors[2]) + " - Brtns: " + String(v2Strip.led_brtns) + " - Speed: " + String(v2Strip.led_speed) + " - FadeSize: " + String(v2Strip.led_fadeSize) + "\n");
     }
     else // V1
     {
@@ -246,7 +254,8 @@ void saveStripParams(bool strip)
         v1Strip.colors[2] = colors[2];
         v1Strip.led_brtns = led_brtns;
         v1Strip.led_speed = led_speed;
-        debugln("\n[TRANS] Prepared Virtual 1 - Mode: " + String(v1Strip.led_mode) + " - Color 1: " + String(v1Strip.colors[0]) + " - Color 2: " + String(v1Strip.colors[1]) + " - Color 3: " + String(v1Strip.colors[2]) + " - Brtns: " + String(v1Strip.led_brtns) + " - Speed: " + String(v1Strip.led_speed) + "\n");
+        v1Strip.led_fadeSize = led_fadeSize;
+        debugln("\n[TRANS] Prepared Virtual 1 - Mode: " + String(v1Strip.led_mode) + " - Color 1: " + String(v1Strip.colors[0]) + " - Color 2: " + String(v1Strip.colors[1]) + " - Color 3: " + String(v1Strip.colors[2]) + " - Brtns: " + String(v1Strip.led_brtns) + " - Speed: " + String(v1Strip.led_speed) + " - FadeSize: " + String(v1Strip.led_fadeSize) + "\n");
     }
 }
 
@@ -279,12 +288,12 @@ void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 =
                 activeStrip = !activeStrip;
                 if (activeStrip)
                 {
-                    leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.colors, v1Strip.led_speed);
+                    leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.colors, v1Strip.led_speed, v1Strip.led_fadeSize);
                     debugln("\n[TRANS] Reached half transition! - Loading settings V1\n");
                 }
                 else
                 {
-                    leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.colors, v2Strip.led_speed);
+                    leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.colors, v2Strip.led_speed, v2Strip.led_fadeSize);
                     debugln("\n[TRANS] Reached half transition! - Loading settings V2\n");
                 }
                 ledBlinkCode = 1;
@@ -331,12 +340,12 @@ void transitionLED(unsigned int transitionType) // transType - 0 = tranist | 1 =
             activeStrip = !activeStrip;
             if (activeStrip)
             {
-                leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.colors, v1Strip.led_speed);
+                leds.setSegment(0, 0, LED_COUNT - 1, v1Strip.led_mode, v1Strip.colors, v1Strip.led_speed, v1Strip.led_fadeSize);
                 leds.setBrightness(v1Strip.led_brtns);
             }
             else
             {
-                leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.colors, v2Strip.led_speed);
+                leds.setSegment(0, 0, LED_COUNT - 1, v2Strip.led_mode, v2Strip.colors, v2Strip.led_speed, v2Strip.led_fadeSize);
                 leds.setBrightness(v2Strip.led_brtns);
             }
             debugln("\n[TRANS] Finished static transition!\n");
@@ -424,6 +433,31 @@ void applySettingsLED()
                 leds.setSpeed(led_speed);
             }
             debugln("\n[LED] SPEED was changed to " + String(led_speed) + "!");
+        }
+
+        if (fadeSize != fadeSize_bef)
+        {
+            fadeSize_bef = fadeSize;
+            switch (fadeSize)
+            {
+            case 1:
+                led_fadeSize = SIZE_SMALL + FADE_XFAST;
+                break;
+            case 2:
+                led_fadeSize = SIZE_MEDIUM + FADE_MEDIUM;
+                break;
+            case 3:
+                led_fadeSize = SIZE_LARGE + FADE_XSLOW;
+                break;
+            case 4:
+                led_fadeSize = SIZE_XLARGE + FADE_GLACIAL;
+                break;
+            }
+            if (!transitionChanges)
+            {
+                leds.setOptions(0, led_fadeSize);
+            }
+            debugln("\n[LED] FADESIZE was changed to " + String(led_fadeSize) + "!");
         }
 
         if (transitionChanges)
@@ -683,6 +717,22 @@ void initLastState()
         uglwMotorBlock = true;
     }
 
+    // LEDs FadeSize
+    uint8_t fadeSizeContent = uint8_t(EEPROM.read(fadeSizeAdress));
+
+    debugln("[EEPROM] LEDs - FadeSize: " + String(fadeSizeContent));
+
+    if (fadeSizeContent >= 1 && fadeSizeContent <= 4)
+    {
+        fadeSize = fadeSizeContent;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - FadeSize - Out of range (1-4)!");
+        fadeSize = 1;
+        EEPROM.write(fadeSizeAdress, fadeSize);
+    }
+
     EEPROM.commit();
 
     debugln("[EEPROM] Extraction completed!");
@@ -801,7 +851,7 @@ void resetEmergencyMode()
     emergency = false;
     if (!uglwMotorBlock && serialInitDataReceived)
     {
-        leds.setSegment(0, 0, LED_COUNT - 1, led_mode, colors, led_speed);
+        leds.setSegment(0, 0, LED_COUNT - 1, led_mode, colors, led_speed, led_fadeSize);
         leds.setBrightness(led_brtns);
         if (activeStrip)
             debugln("\n --- Virtual 1 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color 1: " + String(colors[0]) + " - Color 2: " + String(colors[1]) + " - Color 3: " + String(colors[2]) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
@@ -813,6 +863,7 @@ void resetEmergencyMode()
         led_color3_bef = led_color3;
         led_brtns_bef = led_brtns;
         led_speed_bef = led_speed;
+        fadeSize_bef = fadeSize;
     }
     debugln("\n[EMERGENCY] Mode deactivated!\n");
 }
@@ -1044,6 +1095,22 @@ bool serialCallback()
     {
         debugln("[Serial] Subscribed topic - Transition Coefficient: " + String(payload));
         transCoef = payload.toFloat();
+    }
+    else if (String(topic) == fadeSize_topic)
+    {
+        debugln("[Serial] Subscribed topic - FadeSize: " + String(payload));
+        unsigned int key = payload.toInt();
+        if (key >= 1 && key <= 4 && key != fadeSize)
+        {
+            fadeSize = key;
+            EEPROM.write(fadeSizeAdress, fadeSize);
+            EEPROM.commit();
+            debugln("\n[LED] FADESIZE was saved to " + String(key) + "!");
+        }
+        else if (key == fadeSize)
+            ;
+        else
+            debugln("\n[LED] " + String(key) + " is out of range for parameter FADESIZE!");
     }
     else
     {
