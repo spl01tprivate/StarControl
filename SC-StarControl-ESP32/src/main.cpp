@@ -125,7 +125,8 @@
 #define favoriteColorAdress3_1 51
 #define favoriteColorAdress3_2 52
 #define favoriteColorAdress3_3 53
-// continue at adress 54
+#define fadeSizeAdress 54
+// continue at adress 55
 
 // Inputs
 #define tflPin 14     // D5 - Tagfahrlicht             - Type: PWM
@@ -167,6 +168,7 @@
 #define motor_topic "motor"
 #define transitionCoefficient_topic "transCoef"
 #define reset_topic "reset"
+#define fadeSize_topic "fadesize"
 
 #define emergency_avemsg "emeg_ave"
 #define starhost_avemsg "host_ave"
@@ -274,7 +276,7 @@ const char *PARAM_INPUT_1 = "id";
 const char *PARAM_INPUT_2 = "state";
 const char *PARAM_INPUT_3 = "value";
 bool buttonStates[5] = {false, false, false, false, false}; // 0 - Strobe, 1 - Fade, 2 - MREST Star, 3 - MREST UGLW, 4 - TFLREST UGLW
-unsigned int sliderValues[6] = {3, 3, 2, 2, 0, 0};          // 0 - Star, 1 - TFL, 2 - Star Fade Time, 3 - TFL Fade Time, 4 - UGLW Brtns, 5 - UGLW Speed
+unsigned int sliderValues[7] = {3, 3, 2, 2, 0, 0, 0};       // 0 - Star, 1 - TFL, 2 - Star Fade Time, 3 - TFL Fade Time, 4 - UGLW Brtns, 5 - UGLW Speed , 6 - UGLW FadeSize
 float sliderValuesFloat[4] = {12.0, 0, 1.18, 0};            // 0 - batVoltTresh | 1 - batVoltOffset | 2 - TransCoef | 3 - batVoltOffsetMotor                     // 0 - BatVoltThreshold, 1 - BatVoltOffset
 
 // WS2812 LEDs
@@ -301,6 +303,7 @@ unsigned int favoriteColor3;
 unsigned int favoriteBrtns;
 unsigned int favoriteSpeed;
 float transitionCoefficient;
+uint8_t fadeSize;
 
 // Battery Voltage
 unsigned long lastADCVal = 0;
@@ -407,7 +410,7 @@ void setup()
   }
   ledSerial.begin(115200);
   ledSerial.setTimeout(3);
-  EEPROM.begin(54);
+  EEPROM.begin(55);
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
@@ -1819,6 +1822,24 @@ void initLastState()
 
   sliderValuesFloat[3] = motorVoltOffset;
 
+  // UGLW FadeSize
+  uint8_t fadeSizeContent = EEPROM.read(fadeSizeAdress);
+
+  debugln("[EEPROM] LEDs - FadeSize: " + String(fadeSizeContent));
+
+  if (fadeSizeContent >= 1 && fadeSizeContent <= 4)
+  {
+    fadeSize = fadeSizeContent;
+  }
+  else
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - FadeSize - Out of range (1-4)!");
+    fadeSize = 1;
+    EEPROM.write(fadeSizeAdress, fadeSize);
+  }
+
+  sliderValues[6] = fadeSize;
+
   EEPROM.commit();
 
   debugln("[EEPROM] Extraction completed!");
@@ -2096,6 +2117,31 @@ String processor(const String &var)
     String retval = "Transition Coefficient: " + String(sliderValuesFloat[2]);
     return retval;
   }
+  if (var == "SLIDERTEXT11")
+  {
+    switch (sliderValues[6])
+    {
+    case 1:
+      return "Fadesize - Small";
+      break;
+    case 2:
+      return "Fadesize - Medium";
+      break;
+    case 3:
+      return "Fadesize - Large";
+      break;
+    case 4:
+      return "Fadesize - XLarge";
+      break;
+
+    default:
+      break;
+    }
+  }
+  if (var == "SLIDERVALUE11")
+  {
+    return String(sliderValues[6]);
+  }
   return String();
 }
 
@@ -2143,7 +2189,13 @@ void assignServerHandlers()
               // GET input1 value on <ESP_IP>/slider?value=<inputMessage>
               if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_3))
               {
-                sliderID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6)); //extract Slider ID from String
+                if (request->getParam(PARAM_INPUT_1)->value().length() == 7)
+                  sliderID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6)); //extract Slider ID from String
+                else if (request->getParam(PARAM_INPUT_1)->value().length() == 8)
+                  sliderID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6)) + String(request->getParam(PARAM_INPUT_1)->value().charAt(7)); //extract Slider ID from String
+
+                debugln("\n[HTTP-Hanlder] Extracted Slider-ID '" + sliderID + "'!\n");
+
                 if (String(request->getParam(PARAM_INPUT_1)->value()) == "uglw_speed")
                   sliderID = "5";
                 else if (String(request->getParam(PARAM_INPUT_1)->value()) == "batvoltoffset")
@@ -2153,11 +2205,11 @@ void assignServerHandlers()
                 else if (String(request->getParam(PARAM_INPUT_1)->value()) == "batvoltoffsetmotor")
                   sliderID = "9";
                 else if (String(request->getParam(PARAM_INPUT_1)->value()) == "favoriteUGLWMode")
-                  sliderID = "11";
+                  sliderID = "19";
                 sliderValue = request->getParam(PARAM_INPUT_3)->value();
                 if (sliderID.toInt() == 6 || sliderID.toInt() == 7 || sliderID.toInt() == 8 || sliderID.toInt() == 9)
                   sliderValuesFloat[sliderID.toInt() - 6] = sliderValue.toFloat();
-                else if (sliderID.toInt() == 11 && sliderValue.toInt() >= 0 && sliderValue.toInt() <= 56)
+                else if (sliderID.toInt() == 19 && sliderValue.toInt() >= 0 && sliderValue.toInt() <= 56)
                 {
                   favoriteMode = sliderValue.toInt();
                   favoriteColor1 = led_color1;
@@ -2166,8 +2218,10 @@ void assignServerHandlers()
                   favoriteBrtns = led_brtns;
                   favoriteSpeed = led_speed;
                 }
+                else if (sliderID == "11")
+                  sliderValues[6] = sliderValue.toInt();
                 else
-                  sliderValues[sliderID.toInt()] = sliderValue.toInt(); //update array
+                  sliderValues[sliderID.toInt()] = sliderValue.toInt();
               }
               else
               {
@@ -2217,8 +2271,12 @@ void assignServerHandlers()
             {
               if (request->hasParam(PARAM_INPUT_1))
               {
-                String sldrID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6));
-                request->send_P(200, "text/plain", readWebSldr(sldrID.toInt()).c_str());
+                String sliderID;
+                if (request->getParam(PARAM_INPUT_1)->value().length() == 7)
+                  sliderID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6)); //extract Slider ID from String
+                else if (request->getParam(PARAM_INPUT_1)->value().length() == 8)
+                  sliderID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6)) + String(request->getParam(PARAM_INPUT_1)->value().charAt(7)); //extract Slider ID from String
+                request->send_P(200, "text/plain", readWebSldr(sliderID.toInt()).c_str());
               } });
 
   server.on("/dropdown", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -2311,6 +2369,10 @@ String readWebSldr(int id)
 {
   if (id == 6)
     return String(sliderValuesFloat[id - 6]); // Floats
+  else if (id == 11)
+  {
+    return String(sliderValues[6]); // FadeSize
+  }
   else
     return String(sliderValues[id]); // Ints
 }
@@ -2500,7 +2562,7 @@ void interpretSlider(int id)
     EEPROM.put(batVoltOffsetMotorAdress, motorVoltOffset);
     EEPROM.commit();
   }
-  else if (id == 11) // *** FAVORITE MODE INPUTTEXT ***
+  else if (id == 19) // *** FAVORITE MODE INPUTTEXT ***
   {
     debugln("[HTTP] Favorite UGLW Mode " + String(favoriteMode) + " was selected!");
     EEPROM.write(favoriteModeAdress, favoriteMode);
@@ -2515,6 +2577,30 @@ void interpretSlider(int id)
     debugln("[HTTP] Favorite UGLW Speed " + String(favoriteSpeed) + " was selected!");
     writeSpeedEEPROM(favoriteSpeed, true);
     EEPROM.commit();
+  }
+  else if (id == 11) // *** UGLW FADESIZE ***
+  {
+    if (sliderValues[6] >= 1 && sliderValues[6] <= 4)
+    {
+      uglw_sendValue(9, sliderValues[6], true);
+      switch (sliderValues[6])
+      {
+      case 1:
+        debugln("[HTTP] Underglow FadeSize 'Small' was selected!");
+        break;
+      case 2:
+        debugln("[HTTP] Underglow FadeSize 'Medium' was selected!");
+        break;
+      case 3:
+        debugln("[HTTP] Underglow FadeSize 'Large' was selected!");
+        break;
+      case 4:
+        debugln("[HTTP] Underglow FadeSize 'XLarge' was selected!");
+        break;
+      }
+    }
+    else
+      debugln("[HTTP] ERROR - UGLW FadeSize: Out of boundaries - Value: " + String(sliderValues[6]));
   }
 }
 
@@ -2615,7 +2701,7 @@ void interpretButton(int id)
 }
 
 // Underglow Handlers
-void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) // 0 - mode | 1 - color | 2 - brtns | 3 - speed | 4 - Motor-Restriction | 5 - Data-Transmission | 6 - Transition Coefficient
+void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) // 0 - mode | 1 - color | 2 - brtns | 3 - speed | 4 - Motor-Restriction | 5 - Data-Transmission | 6 - Transition Coefficient | 7 - Color2 | 8 - Color3 | 9 - FadeSize
 {
   String retval = "";
   unsigned int payload = 0;
@@ -3006,22 +3092,38 @@ void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) //
     else
       ledSerial.print("speed!" + String(keyI) + "$");
   }
-  else if (dropdown == 4 && key >= 0 && key <= 3)
+  else if (dropdown == 4 && key >= 0 && key <= 3) // MREST
   {
     unsigned int keyI = (unsigned int)key;
     ledSerial.print("motor!" + String(keyI) + "$");
     retval = "Motor-Restriction " + String(keyI);
   }
-  else if (dropdown == 5)
+  else if (dropdown == 5) // Data-Transmission
   {
     unsigned int keyI = (unsigned int)key;
     ledSerial.print("trans!" + String(keyI) + "$");
     retval = "Data-Transmission " + String(keyI);
   }
-  else if (dropdown == 6)
+  else if (dropdown == 6) // Trans-Coeff
   {
     ledSerial.print(String(transitionCoefficient_topic) + "!" + String(key) + "$");
     retval = "Data-Transmission " + String(key);
+  }
+  else if (dropdown == 9 && key >= 1 && key <= 4) // FadeSize
+  {
+    unsigned int keyI = (unsigned int)key;
+    retval = "FadeSize " + String(keyI);
+    if (overwrite)
+    {
+      debugln("\n[LED] FadeSize was changed!");
+      fadeSize = sliderValues[6];
+      EEPROM.write(fadeSizeAdress, fadeSize);
+      EEPROM.commit();
+      if (selectedMode == 1 || selectedMode == 2)
+        ledSerial.print("fadesize!" + String(keyI) + "$");
+    }
+    else
+      ledSerial.print("fadesize!" + String(keyI) + "$");
   }
   debugln("\n[HTTP] Underglow " + retval + " was selected!");
 }
