@@ -801,14 +801,16 @@ void resetEmergencyMode()
     emergency = false;
     if (!uglwMotorBlock && serialInitDataReceived)
     {
-        leds.setSegment(0, 0, LED_COUNT - 1, led_mode, led_color1, led_speed);
+        leds.setSegment(0, 0, LED_COUNT - 1, led_mode, colors, led_speed);
         leds.setBrightness(led_brtns);
         if (activeStrip)
-            debugln("\n --- Virtual 1 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color: " + String(leds.getColor()) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
+            debugln("\n --- Virtual 1 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color 1: " + String(colors[0]) + " - Color 2: " + String(colors[1]) + " - Color 3: " + String(colors[2]) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
         else
-            debugln("\n --- Virtual 2 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color: " + String(leds.getColor()) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
+            debugln("\n --- Virtual 2 EMEG - Settings - Mode: " + String(leds.getMode()) + " - Color 1: " + String(colors[0]) + " - Color 2: " + String(colors[1]) + " - Color 3: " + String(colors[2]) + " - Brtns: " + String(leds.getBrightness()) + " - Speed: " + String(leds.getSpeed()) + " ---\n");
         led_mode_bef = led_mode;
         led_color1_bef = led_color1;
+        led_color2_bef = led_color2;
+        led_color3_bef = led_color3;
         led_brtns_bef = led_brtns;
         led_speed_bef = led_speed;
     }
