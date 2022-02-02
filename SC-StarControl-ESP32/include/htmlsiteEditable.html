@@ -382,18 +382,28 @@
 </head>
 
 <body>
+    <!--  -->
+    <!-- Heading -->
+    <!--  -->
     <h2>Star Control</h2>
     <hr>
+
+
+    <!--  -->
+    <!-- Main Lights & Sliders -->
+    <!--  -->
+    <!-- Light state info text (Star & TFL) -->
     <p>
         <span id="starStateText" class="starStateTextCSS">%STARSTATETEXT%</span>
         <span id="tflStateText" class="tflStateTextCSS">%TFLSTATETEXT%</span>
     </p>
     <hr>
 
-    <!-- Main Sliders -->
+    <!-- Star Slider with Text -->
     <p><span id="slider0ValueText" class="sliderMainText">%SLIDERTEXT0%</span></p>
     <p><input type="range" onchange="updateSliderStar(this)" id="slider0" min="1" max="3" value="%SLIDERVALUE0%"
             step="1" class="sliderMain"></p>
+    <!-- TFL Slider with Text -->
     <p><span id="slider1ValueText" class="sliderMainText">%SLIDERTEXT1%</span></p>
     <p><input type="range" onchange="updateSliderTFL(this)" id="slider1" min="1" max="3" value="%SLIDERVALUE1%" step="1"
             class="sliderMain"></p>
@@ -406,7 +416,11 @@
     <br><br>
     <hr>
 
-    <!-- Dropdown Menu & UGLW Sliders -->
+
+    <!--  -->
+    <!-- Underglow controls -->
+    <!--  -->
+    <!-- Dropdown menues - Mode & Color 1 - 3 -->
     <h4>Underglow</h4>
     <div class="dropdown0">
         <button onmousedown="showDropdown(dropdownID0)" class="dropdownbtn0">Mode</button>
@@ -503,23 +517,38 @@
             <a onmousedown="dropdownButtonPressed(8, 10)">Black</a>
         </div>
     </div>
+
+    <!-- Favorite Mode - Input box with text -->
     <p><span id="slider8ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT8%</span></p>
     <p>
     <form action="">
         <input type="text" onchange="updateSlider(this)" id="favoriteUGLWMode">
     </form>
     </p>
+
+    <!-- Brightness - Slider with text -->
     <p><span id="slider4ValueText" class="sliderUGLWBrtnsText">%SLIDERTEXT4%</span></p>
     <p><input type="range" onchange="updateSlider(this)" id="slider4" min="0" max="255" value="%SLIDERVALUE4%" step="1"
             class="sliderUGLW"></p>
+
+    <!-- Speed - Slider with text -->
     <p><span id="slider5ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT5%</span></p>
     <p><input type="range" onchange="updateSlider(this)" id="slider5" min="0" max="65000" value="%SLIDERVALUE5%"
             step="1" class="sliderUGLW"></p>
+
+    <!-- Speed - Input box -->
     <p>
     <form action="">
         <input type="text" onchange="updateSlider(this)" id="uglw_speed">
     </form>
     </p>
+
+    <!-- Fadesize - Slider with text -->
+    <p><span id="slider11ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT11%</span></p>
+    <p><input type="range" onchange="updateSlider(this)" id="slider11" min="1" max="4" value="%SLIDERVALUE11%"
+            step="1" class="sliderUGLW"></p>
+
+    <!-- Transition Coefficient -->
     <p><span id="slider10ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT10%</span></p>
     <p>
     <form action="">
@@ -528,39 +557,60 @@
     </p>
     <hr>
 
+
+    <!--  -->
+    <!-- Fade Controls -->
+    <!--  -->
     <!-- Fade Button -->
     %BUTTONPLACEHOLDER0%
     <br><br>
     <hr>
 
-    <!-- Fade Speed Sliders -->
+    <!-- Star Fade Speed - Slider with text -->
     <p><span id="slider2ValueText" class="sliderFadeSpeedTextStar">%SLIDERTEXT2%</span></p>
     <p><input type="range" onchange="updateSlider(this)" id="slider2" min="1" max="3" value="%SLIDERVALUE2%" step="1"
             class="sliderFadeSpeed"></p>
+    <!-- TFL Fade Speed - Slider with text -->
     <p><span id="slider3ValueText" class="sliderFadeSpeedTextTFL">%SLIDERTEXT3%</span></p>
     <p><input type="range" onchange="updateSlider(this)" id="slider3" min="1" max="3" value="%SLIDERVALUE3%" step="1"
             class="sliderFadeSpeed"></p>
     <hr>
 
-    <!-- MREST Button -->
+
+    <!--  -->
+    <!-- Restriction Buttons -->
+    <!--  -->
+    <!-- MREST Star -->
     %BUTTONPLACEHOLDER1%
+    <!-- MREST Underglow -->
     %BUTTONPLACEHOLDER2%
+    <!-- TFLREST Underglow -->
     %BUTTONPLACEHOLDER3%
     <br><br>
     <hr>
 
-    <!-- Battery Management -->
+
+    <!--  -->
+    <!-- Battery Management Controls -->
+    <!--  -->
     <br><br>
+    <!-- Current Battery Voltage text-->
     <span id="infoText3" class="infoText3">%INFOTEXT3%</span>
+
+    <!-- Battery threshold - Slider with text-->
     <p><span id="slider6ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT6%</span></p>
     <p><input type="range" onchange="updateSlider(this)" id="slider6" min="11.0" max="13.0" value="%SLIDERVALUE6%"
             step="0.1" class="sliderUGLW"></p>
+
+    <!-- Battery Voltage Calibration Offset - text with input box -->
     <p><span id="slider7ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT7%</span></p>
     <p>
     <form action="">
         <input type="text" onchange="updateSlider(this)" id="batvoltoffset">
     </form>
     </p>
+
+    <!-- Battery Voltage Motor Offset - text with input box -->
     <p><span id="slider9ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT9%</span></p>
     <p>
     <form action="">
@@ -569,9 +619,14 @@
     </p>
     <hr>
 
-    <!-- Infos -->
+
+    <!--  -->
+    <!-- Footer Infos -->
+    <!--  -->
     <p>
+        <!-- WiFi-RSSI - text -->
         <span id="infoText1" class="infoText1">%INFOTEXT1%</span>
+        <!-- Version - text -->
         <span id="infoText2" class="infoText2">%INFOTEXT2%</span>
     </p>
     <hr>
@@ -777,6 +832,22 @@
             xhttp.open("GET", "/transCoef", true);
             xhttp.send();
         }
+        function slider11UpdateText() {
+            switch (document.getElementById("slider11").value) {
+                case "1":
+                    document.getElementById("slider11ValueText").innerHTML = "Fadesize - Small";
+                    break;
+                case "2":
+                    document.getElementById("slider11ValueText").innerHTML = "Fadesize - Medium";
+                    break;
+                case "3":
+                    document.getElementById("slider11ValueText").innerHTML = "Fadesize - Large";
+                    break;
+                case "4":
+                    document.getElementById("slider11ValueText").innerHTML = "Fadesize - XLarge";
+                    break;
+            }
+        }
         function starStateUpdateText() {
             var xhttp = new XMLHttpRequest();
             xhttp.onreadystatechange = function () {
@@ -833,6 +904,7 @@
             syncSliders("slider4");
             syncSliders("slider5");
             syncSliders("slider6");
+            syncSliders("slider11");
         }, 2000);
         setInterval(function () {
             slider0UpdateText();
@@ -846,6 +918,7 @@
             slider8UpdateText();
             slider9UpdateText();
             slider10UpdateText();
+            slider11UpdateText();
             starStateUpdateText();
             tflStateUpdateText();
         }, 250);
