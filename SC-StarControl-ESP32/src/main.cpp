@@ -126,7 +126,8 @@
 #define favoriteColorAdress3_2 52
 #define favoriteColorAdress3_3 53
 #define fadeSizeAdress 54
-// continue at adress 55
+#define favoriteFadeSizeAdress 55
+// continue at adress 56
 
 // Inputs
 #define tflPin 14     // D5 - Tagfahrlicht             - Type: PWM
@@ -286,6 +287,7 @@ unsigned int led_color2 = 0;
 unsigned int led_color3 = 0;
 unsigned int led_brtns = 0;
 unsigned int led_speed = 10000;
+uint8_t fadeSize;
 bool uglwMotorRestriction = true;
 bool uglwMotorBlock = false;
 bool uglwMotorBlockSent = false;
@@ -302,8 +304,8 @@ unsigned int favoriteColor2;
 unsigned int favoriteColor3;
 unsigned int favoriteBrtns;
 unsigned int favoriteSpeed;
+uint8_t favoriteFadeSize;
 float transitionCoefficient;
-uint8_t fadeSize;
 
 // Battery Voltage
 unsigned long lastADCVal = 0;
@@ -375,6 +377,7 @@ void starRelais(bool);
 void saveOutputParams();
 void restoreOutputParams();
 void tflISRInterpret();
+String uglwSelectedModeRqst();
 String outputState(int);
 String readStarState();
 String readTFLState();
@@ -410,7 +413,7 @@ void setup()
   }
   ledSerial.begin(115200);
   ledSerial.setTimeout(3);
-  EEPROM.begin(55);
+  EEPROM.begin(56);
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
@@ -1766,6 +1769,22 @@ void initLastState()
     writeSpeedEEPROM(favoriteSpeed, true);
   }
 
+  // Favorite UGLW FadeSize
+  uint8_t favfs = (uint8_t)EEPROM.read(favoriteFadeSizeAdress);
+
+  debugln("[EEPROM] Favorite UGLW FadeSize: " + String(favfs));
+
+  if (favfs >= 1 && favfs <= 4)
+  {
+    favoriteFadeSize = favfs;
+  }
+  else
+  {
+    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite FadeSize - Out of range (1-4)!");
+    favoriteFadeSize = 2;
+    EEPROM.write(favoriteFadeSizeAdress, favoriteFadeSize);
+  }
+
   // UGLW TFL-REST.
   int uglwTFL = EEPROM.read(uglwTFLRestrictionAdress); // read EEPROM
 
@@ -1834,7 +1853,7 @@ void initLastState()
   else
   {
     debugln("[EEPROM] Reading was no valid option: LEDs - FadeSize - Out of range (1-4)!");
-    fadeSize = 1;
+    fadeSize = 2;
     EEPROM.write(fadeSizeAdress, fadeSize);
   }
 
@@ -1944,79 +1963,79 @@ String processor(const String &var)
   {
     return readStarState();
   }
-  if (var == "TFLSTATETEXT")
+  else if (var == "TFLSTATETEXT")
   {
     return readTFLState();
   }
-  if (var == "BUTTONPLACEHOLDER0")
+  else if (var == "BUTTONPLACEHOLDER0")
   {
     String buttons = "";
     buttons += "<h4>Fade</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button1\" " + outputState(1) + "><span class=\"btnslider\"></span></label>";
     return buttons;
   }
-  if (var == "BUTTONPLACEHOLDER1")
+  else if (var == "BUTTONPLACEHOLDER1")
   {
     String buttons = "";
     buttons += "<h4>Motor Restriction Star</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button2\" " + outputState(2) + "><span class=\"btnslider\"></span></label>";
     return buttons;
   }
-  if (var == "BUTTONPLACEHOLDER2")
+  else if (var == "BUTTONPLACEHOLDER2")
   {
     String buttons = "";
     buttons += "<h4>Motor Restriction UGLW</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button3\" " + outputState(3) + "><span class=\"btnslider\"></span></label>";
     return buttons;
   }
-  if (var == "BUTTONPLACEHOLDER3")
+  else if (var == "BUTTONPLACEHOLDER3")
   {
     String buttons = "";
     buttons += "<h4>TFL Restriction UGLW</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button4\" " + outputState(4) + "><span class=\"btnslider\"></span></label>";
     return buttons;
   }
-  if (var == "SLIDERTEXT0")
+  else if (var == "SLIDERTEXT0")
   {
     switch (sliderValues[0])
     {
     case 1:
-      return "Star - Automatik";
+      return "Star - Automatic";
       break;
     case 2:
-      return "Star - An";
+      return "Star - On";
       break;
     case 3:
-      return "Star - Aus";
+      return "Star - Off";
       break;
 
     default:
       break;
     }
   }
-  if (var == "SLIDERVALUE0")
+  else if (var == "SLIDERVALUE0")
   {
     return String(sliderValues[0]);
   }
-  if (var == "SLIDERTEXT1")
+  else if (var == "SLIDERTEXT1")
   {
     switch (sliderValues[1])
     {
     case 1:
-      return "TFL - Automatik";
+      return "TFL - Automatic";
       break;
     case 2:
-      return "TFL - An";
+      return "TFL - On";
       break;
     case 3:
-      return "TFL - Aus";
+      return "TFL - Off";
       break;
 
     default:
       break;
     }
   }
-  if (var == "SLIDERVALUE1")
+  else if (var == "SLIDERVALUE1")
   {
     return String(sliderValues[1]);
   }
-  if (var == "SLIDERTEXT2")
+  else if (var == "SLIDERTEXT2")
   {
     switch (sliderValues[2])
     {
@@ -2033,11 +2052,11 @@ String processor(const String &var)
       break;
     }
   }
-  if (var == "SLIDERVALUE2")
+  else if (var == "SLIDERVALUE2")
   {
     return String(sliderValues[2]);
   }
-  if (var == "SLIDERTEXT3")
+  else if (var == "SLIDERTEXT3")
   {
     switch (sliderValues[3])
     {
@@ -2054,70 +2073,70 @@ String processor(const String &var)
       break;
     }
   }
-  if (var == "SLIDERVALUE3")
+  else if (var == "SLIDERVALUE3")
   {
     return String(sliderValues[3]);
   }
-  if (var == "SLIDERTEXT4")
+  else if (var == "SLIDERTEXT4")
   {
     String retval = "Brightness - " + String(sliderValues[4]);
     return retval;
   }
-  if (var == "SLIDERVALUE4")
+  else if (var == "SLIDERVALUE4")
   {
     return String(sliderValues[4]);
   }
-  if (var == "SLIDERTEXT5")
+  else if (var == "SLIDERTEXT5")
   {
     String retval = "Speed - " + String(sliderValues[5]);
     return retval;
   }
-  if (var == "SLIDERVALUE5")
+  else if (var == "SLIDERVALUE5")
   {
     return String(sliderValues[5]);
   }
-  if (var == "INFOTEXT1")
+  else if (var == "INFOTEXT1")
   {
     return "WiFi-RSSI: " + String(WiFi.RSSI());
   }
-  if (var == "INFOTEXT2")
+  else if (var == "INFOTEXT2")
   {
     return "Version: " + String(VERSION);
   }
-  if (var == "INFOTEXT3")
+  else if (var == "INFOTEXT3")
   {
     return "Battery-Voltage: " + String(batteryVoltage) + " Volt";
   }
-  if (var == "SLIDERTEXT6")
+  else if (var == "SLIDERTEXT6")
   {
-    String retval = "Battery-Voltage Threshold - " + String(sliderValuesFloat[0]) + " Volt";
+    String retval = "Threshold - " + String(sliderValuesFloat[0]) + " Volt";
     return retval;
   }
-  if (var == "SLIDERVALUE6")
+  else if (var == "SLIDERVALUE6")
   {
     return String(sliderValuesFloat[0]);
   }
-  if (var == "SLIDERTEXT7")
+  else if (var == "SLIDERTEXT7")
   {
-    String retval = "Battery-Voltage Offset - " + String(sliderValuesFloat[1]) + " Volt";
+    String retval = "Calibration Offset - " + String(sliderValuesFloat[1]) + " Volt";
     return retval;
   }
-  if (var == "SLIDERTEXT8")
+  else if (var == "SLIDERTEXT8")
   {
     String retval = "Favorite Mode: " + String(favoriteMode);
     return retval;
   }
-  if (var == "SLIDERTEXT9")
+  else if (var == "SLIDERTEXT9")
   {
-    String retval = "Battery-Voltage Motor Offset: " + String(sliderValuesFloat[3]) + " Volt";
+    String retval = "Motor Offset: " + String(sliderValuesFloat[3]) + " Volt";
     return retval;
   }
-  if (var == "SLIDERTEXT10")
+  else if (var == "SLIDERTEXT10")
   {
     String retval = "Transition Coefficient: " + String(sliderValuesFloat[2]);
     return retval;
   }
-  if (var == "SLIDERTEXT11")
+  else if (var == "SLIDERTEXT11")
   {
     switch (sliderValues[6])
     {
@@ -2138,11 +2157,149 @@ String processor(const String &var)
       break;
     }
   }
-  if (var == "SLIDERVALUE11")
+  else if (var == "SLIDERVALUE11")
   {
     return String(sliderValues[6]);
   }
+  else if (var == "UGLWSELMODETEXT")
+  {
+    return "Selected Mode: " + uglwSelectedModeRqst();
+  }
+
   return String();
+}
+
+String uglwSelectedModeRqst()
+{
+  String retval;
+  switch (led_mode)
+  {
+  case 0:
+    retval = "Static";
+    break;
+  case 1:
+    retval = "Blink";
+    break;
+  case 2:
+    retval = "Breath";
+    break;
+  case 3:
+    retval = "Color Wipe";
+    break;
+  case 7:
+    retval = "Color Wipe Random";
+    break;
+  case 8:
+    retval = "Random Color";
+    break;
+  case 9:
+    retval = "Single Dynamic";
+    break;
+  case 10:
+    retval = "Multi Dynamic";
+    break;
+  case 11:
+    retval = "Rainbow Even";
+    break;
+  case 12:
+    retval = "Rainbow Cycle";
+    break;
+  case 13:
+    retval = "Scan";
+    break;
+  case 14:
+    retval = "Dual Scan";
+    break;
+  case 15:
+    retval = "Breath Fast";
+    break;
+  case 16:
+    retval = "Theater Chase";
+    break;
+  case 17:
+    retval = "Theater Chase Rainbow";
+    break;
+  case 18:
+    retval = "Running Lights";
+    break;
+  case 19:
+    retval = "Twinkle";
+    break;
+  case 20:
+    retval = "Twinkle Random";
+    break;
+  case 21:
+    retval = "Twinkle Fade";
+    break;
+  case 22:
+    retval = "Twinkle Fade Random";
+    break;
+  case 23:
+    retval = "Sparkle";
+    break;
+  case 26:
+    retval = "Strobe";
+    break;
+  case 27:
+    retval = "Strobe Rainbow";
+    break;
+  case 29:
+    retval = "Blink Rainbow";
+    break;
+  case 32:
+    retval = "Chase Random";
+    break;
+  case 33:
+    retval = "Chase Rainbow";
+    break;
+  case 38:
+    retval = "Chase Blackout Rainbow";
+    break;
+  case 40:
+    retval = "Running Color";
+    break;
+  case 41:
+    retval = "Running Red-Blue";
+    break;
+  case 42:
+    retval = "Running Random";
+    break;
+  case 43:
+    retval = "Larson Scanner";
+    break;
+  case 44:
+    retval = "Comet";
+    break;
+  case 45:
+    retval = "Fireworks";
+    break;
+  case 46:
+    retval = "Fireworks Random";
+    break;
+  case 47:
+    retval = "Merry Christmas";
+    break;
+  case 49:
+    retval = "Fire Flicker";
+    break;
+  case 51:
+    retval = "Circus Combustus";
+    break;
+  case 52:
+    retval = "Halloween";
+    break;
+  case 55:
+    retval = "TwinkleFox";
+    break;
+  case 56:
+    retval = "Rain";
+    break;
+
+  default:
+    retval = "nan";
+    break;
+  }
+  return retval;
 }
 
 String outputState(int key)
@@ -2217,6 +2374,7 @@ void assignServerHandlers()
                   favoriteColor3 = led_color3;
                   favoriteBrtns = led_brtns;
                   favoriteSpeed = led_speed;
+                  favoriteFadeSize = fadeSize;
                 }
                 else if (sliderID == "11")
                   sliderValues[6] = sliderValue.toInt();
@@ -2302,7 +2460,7 @@ void assignServerHandlers()
 
   server.on("/batVoltOffset", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "Battery-Voltage Offset: " + String(batVoltOffset) + " Volt";
+              String retval = "Calibration Offset: " + String(batVoltOffset) + " Volt";
               request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/favoriteUGLWMode", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -2312,12 +2470,17 @@ void assignServerHandlers()
 
   server.on("/batVoltOffsetMotor", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "Battery-Voltage Motor Offset: " + String(motorVoltOffset) + " Volt";
+              String retval = "Motor Offset: " + String(motorVoltOffset) + " Volt";
               request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/transCoef", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               String retval = "Transition Coefficient: " + String(transitionCoefficient);
+              request->send_P(200, "text/plain", retval.c_str()); });
+
+  server.on("/uglwSelMode", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+              String retval = "Selected Mode: " + uglwSelectedModeRqst();
               request->send_P(200, "text/plain", retval.c_str()); });
 }
 
@@ -2333,9 +2496,9 @@ String readStarState()
   else if (ledcRead(0) > 0 && ledcRead(0) < 1023)
     retval += "Star - Fading";
   else if (ledcRead(0) == 0)
-    retval += "Star - AUS";
+    retval += "Star - OFF";
   else if (ledcRead(0) == 1023)
-    retval += "Star - AN";
+    retval += "Star - ON";
   return retval;
 }
 
@@ -2351,9 +2514,9 @@ String readTFLState()
   else if ((ledcRead(1) > 0 && ledcRead(1) < 1023 && motorRunning) || (ledcRead(1) > 0 && ledcRead(1) < tflDimTreshold && !motorRunning) || (ledcRead(1) > tflDimTreshold && !motorRunning))
     retval += "TFL - Fading";
   else if (ledcRead(1) == 0)
-    retval += "TFL - AUS";
+    retval += "TFL - OFF";
   else if ((ledcRead(1) == 1023 && motorRunning) || (ledcRead(1) == tflDimTreshold && !motorRunning))
-    retval += "TFL - AN";
+    retval += "TFL - ON";
   return retval;
 }
 
@@ -2576,6 +2739,8 @@ void interpretSlider(int id)
     EEPROM.write(favoriteBrtnsAdress, favoriteBrtns);
     debugln("[HTTP] Favorite UGLW Speed " + String(favoriteSpeed) + " was selected!");
     writeSpeedEEPROM(favoriteSpeed, true);
+    debugln("[HTTP] Favorite UGLW FadeSize " + String(favoriteFadeSize) + " was selected!");
+    EEPROM.write(favoriteFadeSizeAdress, favoriteFadeSize);
     EEPROM.commit();
   }
   else if (id == 11) // *** UGLW FADESIZE ***
@@ -3241,6 +3406,7 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       uglw_sendValue(1, led_color1);
       uglw_sendValue(7, led_color2);
       uglw_sendValue(8, led_color3);
+      uglw_sendValue(9, fadeSize);
       uglw_sendValue(0, led_mode);
       if (selectedModeBef == 2 || selectedModeBef == 3)
         uglw_sendValue(5, 5); // transition duration 5ms * 100
@@ -3273,6 +3439,7 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
       uglw_sendValue(1, favoriteColor1);
       uglw_sendValue(7, favoriteColor2);
       uglw_sendValue(8, favoriteColor3);
+      uglw_sendValue(9, favoriteFadeSize);
       uglw_sendValue(0, favoriteMode);
       if (selectedModeBef == 2)
         uglw_sendValue(5, 5); // transition duration 5ms * 100
