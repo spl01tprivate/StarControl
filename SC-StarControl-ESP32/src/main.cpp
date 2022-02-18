@@ -37,12 +37,20 @@
   - If multiple clients are connected their inputs are synced by Interval-JavaScript functions
   ~ Introducing controls for underglow parameters (mode, color, brightness, speed)
   - Including MQTT broadcasting and website controls
-  13/01/22 - V2.0
-  ~ Added Github repository
+  18/02/22 - V2.0
+  ~ Updated whole system (starhost + emergency + underglow) to new generation 2.0
+  ~ Added Github repository to track changes
+  ~ New features include: battery voltage monitoring, underglow communication via hardware serial, emergency communication via wifi, 4 fxmodes (emergency, default, favorite, strobe), ...
+  ~ Reviewed wifi and mqtt functions and introduced new handler controlled functions to be more efficient
+  ~ Web page: new fresh and compact design with lots of controls (added underglow-, battery-controls and info-panels)
 
   --- Bugs ---
   ~ ISR detection sometimes recognizes continuous HIGH before pwm detection has finished
   - Fix: NOT working all time, but prevents some occurrences - cont. HIGH has to recognize its pattern several times (7) before it is allowed to set final signal type
+  ~ Strobe: If triggered via web interface, the button sometimes "hangs", so strobe mode is not disabled
+  - Fix: tbd.
+  ~ WiFi Startup: On the first startup of the controller after a reset, it experiences a brownout during startup of wifi module
+  - Fix: Trigger the brownout in the beginning, because strangely this problem doesn't occur during the second reset (triggerd by brownout detector)
 */
 
 //***** INCLUDES *****
@@ -58,11 +66,11 @@
 
 //***** DEFINES *****
 // Version
-#define VERSION 1.8
+#define VERSION 2.0
 
 // Debug
-#define DEBUG 1
-#define ISRDEBUG 1
+#define DEBUG 0
+#define ISRDEBUG 0
 
 #if DEBUG == 1
 #define debug(x) Serial.print(x)
@@ -72,7 +80,7 @@
 #define debugln(x)
 #endif
 
-#if ISRDEBUG == 0
+#if ISRDEBUG == 1
 #define ISRln(x) Serial.println(x)
 #else
 #define ISRln(x)
@@ -221,7 +229,7 @@ bool strobeActiveMQTT = false;
 int strobeDataBefore[6]; // Stores previous states of analog / digital outputs of relais and leds
 
 // TFL ISR
-portMUX_TYPE sync = portMUX_INITIALIZER_UNLOCKED;
+portMUX_TYPE ISRSync = portMUX_INITIALIZER_UNLOCKED;
 volatile byte tflISRrisingState = 0;
 volatile byte tflISRfallingState = 0;
 unsigned long tflISRrisingCounter = 0;
@@ -239,12 +247,12 @@ bool tflISRriseStartBool = true;
 
 void IRAM_ATTR tflISR()
 {
-  portENTER_CRITICAL(&sync);
+  portENTER_CRITICAL(&ISRSync);
   if (digitalRead(tflPin))
     tflISRrisingState = 1;
   else
     tflISRfallingState = 1;
-  portEXIT_CRITICAL(&sync);
+  portEXIT_CRITICAL(&ISRSync);
 }
 
 // LED Serial

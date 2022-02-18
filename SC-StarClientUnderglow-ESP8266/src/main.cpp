@@ -11,9 +11,14 @@
   ~ Fixed EEPROM bug for color and speed saving
   - EEPROM can store a maximum of 8 bits per "adress", therefore values greater than 255 have to be split in low (, mid) and high bytes
   ~ Added automatic switching to "EMERGENCY MODE", if the wifi / mqtt connection is lost or there is an api call to override the lights
+  18/02/22 - V2.0
+  ~ Updated whole system (starhost + emergency + underglow) to new generation 2.0
+  - New features include the full usability of WS2812FX library (lots of effects, configurable via fadesize), clean transitions between fxmode 2 and 3 by using virtual stripes, ...
+  - Transitions can be variated using different durations (code) or by modifying the transition coefficient (web interface)
 
   --- Bugs ---
-  ~ No known bugs
+  ~ Very rare: After fxmode strobe and a MCU reset strobe stays until another differnt fxmode is selected
+  - Origin: not known
 */
 
 //***** INCLUDES *****
@@ -23,18 +28,11 @@
 
 //***** DEFINES *****
 // Version
-#define VERSION 1.1
+#define VERSION 2.0
 
 // Debug
-#define DEBUG 1
-
-#if DEBUG == 1
 #define debug(x) Serial.print(x)
 #define debugln(x) Serial.println(x)
-#else
-#define debug(x)
-#define debugln(x)
-#endif
 
 // IOs
 #define LED_PIN 5   // D1
@@ -60,7 +58,7 @@
 // continue at 16
 
 // WS2812 LEDs
-#define LED_COUNT 300 // TODO: INCREASE THIS !!! 300 only for testbench !!!
+#define LED_COUNT 595
 
 // Serial Client Topics
 #define status_topic "status"
@@ -180,8 +178,7 @@ void serialEmergencyTOWD();
 void setup()
 {
     // Begin
-    if (DEBUG)
-        Serial.begin(115200);
+    Serial.begin(115200);
     Serial.setTimeout(3);
     EEPROM.begin(16);
 

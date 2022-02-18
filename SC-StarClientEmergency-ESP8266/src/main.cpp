@@ -10,6 +10,11 @@
   27/11/21 - V1.1
   ~ Added mqtt client connectivity to listen to messages from host broker
   - API calls are therefore now accessed via mqtt publishes and callbacks
+  18/02/22 - V2.0
+  ~ Updated whole system (starhost + emergency + underglow) to new generation 2.0
+  ~ Added physical button slider with 4 states (fxmodes: emergency, default, favorite, strobe)
+  ~ Added physical status pixel (blue = mcu on, green = starhost connected, red = emergency active)
+  ~ Added secret restart pattern: slide button states like so  1, 4, 1, 4, 1 and whole system will execute a restart
 
   --- Bugs ---
   ~ No known bugs
@@ -25,10 +30,10 @@
 
 //***** DEFINES *****
 // Version
-#define VERSION 1.1
+#define VERSION 2.0
 
 // Debug
-#define DEBUG 1
+#define DEBUG 0
 
 #if DEBUG == 1
 #define debug(x) Serial.print(x)
