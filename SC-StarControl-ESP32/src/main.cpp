@@ -43,6 +43,10 @@
   ~ New features include: battery voltage monitoring, underglow communication via hardware serial, emergency communication via wifi, 4 fxmodes (emergency, default, favorite, strobe), ...
   ~ Reviewed wifi and mqtt functions and introduced new handler controlled functions to be more efficient
   ~ Web page: new fresh and compact design with lots of controls (added underglow-, battery-controls and info-panels)
+  23/02/22 - V2.01
+  ~ OTA fixed - Modified StarEmergency to not restart itself in favorite mode (selMode = 3) if Starhost lost its mqtt connection
+  - This fixes the issue of not being able to do an OTA update to StarHost (via StarEmergency - its the "router")
+  ~ Fixed html site error of starStateText not being displayed correctly if turned on
 
   --- Bugs ---
   ~ ISR detection sometimes recognizes continuous HIGH before pwm detection has finished
@@ -66,7 +70,7 @@
 
 //***** DEFINES *****
 // Version
-#define VERSION 2.0
+#define VERSION 2.01
 
 // Debug
 #define DEBUG 0
@@ -2494,37 +2498,41 @@ void assignServerHandlers()
 
 String readStarState()
 {
-  String retval = "";
+  String retval;
   if (apiOverrideOff)
-    retval += "Star - BLOCKED";
+    retval = "Star - BLOCKED";
   else if (batteryEmergency)
-    retval += "Star - BAT LOW";
+    retval = "Star - BAT LOW";
   else if (strobe || strobeShort)
-    retval += "Star - Strobing";
+    retval = "Star - Strobing";
   else if (ledcRead(0) > 0 && ledcRead(0) < 1023)
-    retval += "Star - Fading";
+    retval = "Star - Fading";
   else if (ledcRead(0) == 0)
-    retval += "Star - OFF";
-  else if (ledcRead(0) == 1023)
-    retval += "Star - ON";
+    retval = "Star - OFF";
+  else if (ledcRead(0) >= 1023)
+    retval = "Star - ON";
+  else
+    retval = "Star - nan";
   return retval;
 }
 
 String readTFLState()
 {
-  String retval = "";
+  String retval;
   if (apiOverrideOff)
-    retval += "TFL - BLOCKED";
+    retval = "TFL - BLOCKED";
   else if (batteryEmergency)
-    retval += "TFL - BAT LOW";
+    retval = "TFL - BAT LOW";
   else if (strobe || strobeShort)
-    retval += "TFL - Strobing";
+    retval = "TFL - Strobing";
   else if ((ledcRead(1) > 0 && ledcRead(1) < 1023 && motorRunning) || (ledcRead(1) > 0 && ledcRead(1) < tflDimTreshold && !motorRunning) || (ledcRead(1) > tflDimTreshold && !motorRunning))
-    retval += "TFL - Fading";
+    retval = "TFL - Fading";
   else if (ledcRead(1) == 0)
-    retval += "TFL - OFF";
-  else if ((ledcRead(1) == 1023 && motorRunning) || (ledcRead(1) == tflDimTreshold && !motorRunning))
-    retval += "TFL - ON";
+    retval = "TFL - OFF";
+  else if ((ledcRead(1) >= 1023 && motorRunning) || (ledcRead(1) == tflDimTreshold && !motorRunning))
+    retval = "TFL - ON";
+  else
+    retval = "TFL - nan";
   return retval;
 }
 
