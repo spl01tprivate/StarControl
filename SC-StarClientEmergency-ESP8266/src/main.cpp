@@ -15,6 +15,9 @@
   ~ Added physical button slider with 4 states (fxmodes: emergency, default, favorite, strobe)
   ~ Added physical status pixel (blue = mcu on, green = starhost connected, red = emergency active)
   ~ Added secret restart pattern: slide button states like so  1, 4, 1, 4, 1 and whole system will execute a restart
+  23/02/22 - V2.01
+  ~ Modified StarEmergency to not restart itself in favorite mode (selMode = 3) if Starhost lost its mqtt connection
+  - This fixes the issue of not being able to do an OTA update to StarHost (via StarEmergency - its the "router")
 
   --- Bugs ---
   ~ No known bugs
@@ -30,7 +33,7 @@
 
 //***** DEFINES *****
 // Version
-#define VERSION 2.0
+#define VERSION 2.01
 
 // Debug
 #define DEBUG 0
@@ -74,6 +77,7 @@
 // WS2812FX
 #define LED_PIN 13 // D7
 #define LED_COUNT 1
+#define LED_BRTNS 48 // Maximum brtns of status pixel
 
 //***** VARIABLES & OBJECTS *****
 // WiFi Variables
@@ -120,7 +124,7 @@ public:
   {
     Serial.println("[MQTT] Client '" + client_id + "' disconnected!");
     hostConnected = false;
-    if (client_id == "starhost1")
+    if (client_id == "starhost1" && selectedMode != 3) // In favorite mode emeg will not restart so an ota update to starhost can successfully occur!
       ESP.restart();
   }
 
@@ -289,7 +293,7 @@ void statusPixel()
     if (leds.getPixelColor(0) != color)
     {
       leds.setPixelColor(0, color);
-      leds.setBrightness(255);
+      leds.setBrightness(LED_BRTNS);
       leds.show();
     }
   }
@@ -548,6 +552,7 @@ void mqttAliveMessage()
     yourlastAveMsg = millis();
     debugln("\n[Timeout-WD] Host MQTT Client timed out!");
     debugln("\n[ESP] Restarting for new connection with host!\n");
+    if (selectedMode != 3)
     ESP.restart();
   }
   else if (millis() == (yourlastAveMsg + aveMsgTimeout - 2000) && hostWasConnected)
