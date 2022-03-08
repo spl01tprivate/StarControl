@@ -1,4 +1,4 @@
-![Illuminated Star Cropped](https://user-images.githubusercontent.com/33253725/149628611-a457c843-b964-4c8b-be25-fd635a33d951.jpg)
+![just front cropped again](https://user-images.githubusercontent.com/33253725/157230167-9e78a972-df2e-4d81-b1e7-94a75708e23d.png)
 # StarControl
 This project is about some lighting for my mercedes-benz. 
 It initially started with an illuminated star in the front grill, which I wanted to control automated or manually via an AP and a html page. 
@@ -15,6 +15,12 @@ The main purpose of this controller is to give the driver the ability to quickly
 ### Underglow-Client | ESP8266:
 This MCU was added, because the ESP32 had severe problems during my hardware tests with pushing the data for the WS2812 LEDs out. In several threads was reported this is because of the WiFi instance periodically interrupting other processes and therefore disturbs the transmission of the data stream to the LEDs. That's why I decided to an additional MCU wth the task of only controlling the 600 digital LEDs (which demands a lot computing power) without having to communicate over WiFi. Consequently I am relying on a serial-only-communication between the "Underglow-Client" and the "StarController" - so every MCU is focused on it's own tasks independently of each other :)
 
+## Version 2.1
+In this revision problems concerning LED flickering were adressed. The error's origin is the WS2812 chip's high level treshold voltage of 3.5V. Because of a not level adjusted data signal of 3.3V (StarClient UGLW - GPIO4 (D2)) there may occur issues like flickering, since the chip has a difficult time differentiating the 3.3V level between a 0 or 1. Therefore I added a 3.3V to 5V level shifter before contacting the LEDs.
+StarClient Emergency also received a new status pixel consisting of a single WS2812 pixel to indicate different connection states and active modes.
+
+![Schematic_Star-Control-V2-1_2022-03-08](https://user-images.githubusercontent.com/33253725/157222556-1298c5ad-3888-4ee7-94ff-8447ce703deb.png)
+
 ## Version 2.0
 The new revision's major changes are the migration to the more performant ESP32 D1 Mini, aswell as the other two additional MCUs. StarClient UGLW handles the digital LEDs, while StarClient Emergency is located in the driver's cabin to expose a WiFi-AP and is further more equipped with a 4 mode slider to easily switch between different light scenes.
 
@@ -26,7 +32,7 @@ This is a circuit diagramm from the older version, in which only the StarControl
 ![Schematic_Star-Control_2021-10-06](https://user-images.githubusercontent.com/33253725/149627361-69b01865-dca2-4f18-b78a-5a95abb0b29b.png)
 
 ## Battery concept & Vehicle wiring  
-Because all of this relys on the power of my vehicle's battery I made a concept on how to power the whole circuitry without draining my battery if the car is sleeping.
-I decided to only power the MCUs if the car wakes up and therefore activates relay clamp 15. Then there is clamp 15R and the starter clamp 50 which I use as input signals to compute the state of the motor (running or not). If the motor gets started clamp 50 is pulled high during the starting process and 15R remains high until the key is rotated to state 15 in which the motor switches off again. I am additionally reading the state of the DRLs which I decided to control myself with 2 MOSFETs. Unfortunately I ran into the problem that the ECU of the car notices that the current draw on the original DRL lines is 0 mA if not connected to ground and therefore displays a warning message in my instrument cluster. I solved this problem by choosing accordingly dimensioned power resisitors with metal heatsinks to spread the heat safely. Below is a rough concept from the early development stages of this project.
+All of the above controllers relys on the power of my vehicle's battery. That beeing the case, I created a concept on how to power the whole circuitry without draining the battery while the vehicle is sleeping.
+I decided to only power the MCUs if the car wakes up and therefore activates relay clamp 15. Additionally, there are clamp 15R and the starter clamp 50 which I use as input signals to compute the state of the motor (running or not). If the motor gets started clamp 50 is pulled high. Clamp 15R remains high until the key is rotated to state 15 in which the motor switches off again. Besides, I am also reading the DRLs state, because I decided to control them myself with 2 MOSFETs. Unfortunately, I ran into the problem that the car's ECU notices the lack of current draw on the original DRL lines and therefore displays a warning message in my instrument cluster. I solved this problem by choosing accordingly dimensioned power resisitors, connecting the DRL lines via these resistor to GND and finally converting the ECUs output current into heat, which is then safely spreaded by using the power resistors' metal heatsinks. Below is a rough concept from the early development stages of this project.
 
 ![Flowchart](https://user-images.githubusercontent.com/33253725/149628122-031fb700-c198-4e6d-90bc-a2dc74feb59b.png)
