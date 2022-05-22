@@ -1,4 +1,4 @@
-![just front cropped again](https://user-images.githubusercontent.com/33253725/157230167-9e78a972-df2e-4d81-b1e7-94a75708e23d.png)
+![cropped](https://user-images.githubusercontent.com/33253725/169713797-626957af-e48f-4467-bf7c-03c84f41aa86.png)
 # StarControl
 This project is about some lighting for my mercedes-benz. 
 It initially started with an illuminated star in the front grill, which I wanted to control automated or manually via an AP and a html page. 
