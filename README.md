@@ -2,7 +2,7 @@
 # StarControl
 This project is about some lighting for my mercedes-benz. 
 It initially started with an illuminated star in the front grill, which I wanted to control automated or manually via an AP and a html page. 
-Later I decided to add some underglow LEDs, therefore I added two additional MCUs. One ESP8266 inside the cabin to quickly switch between different preset modes without the need of visiting the html page. The other MCU is controlling the 600 WS2812 digital LEDs attached to the underbody of my car.
+Later I decided to add some underglow LEDs, therefore I added two additional MCUs. One ESP8266 inside the cabin to quickly switch between different preset modes without the need of visiting the html page. The other MCU is controlling the 600 WS2812 digital LEDs attached to the floor of my car.
 
 I started this project in early September of 2021 (I had four boring weeks of vacation from my job as starting electronics engineer ;)) and finished the only "star-controlled" version in this timeframe. In late December I started thinking about how awesome an additional underglow would be on my car and that beeing the case decided to continue my work on this project. So I ordered the needed parts to start working again during my christmas vacation. Sadly, there were only two weeks fully packed with christmas meetings and new-year preperations to work on my new concepts. That's why I didn't finish everything and am currently still working on this project :)
 
