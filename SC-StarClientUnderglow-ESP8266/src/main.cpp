@@ -161,7 +161,7 @@ void applySettingsLED();
 void ledBlink();
 void ledBlinkError();
 void ledBlinkSuccess();
-void initLastState();
+void eeprom_initLastState();
 void writeColorEEPROM(unsigned int, unsigned int);
 unsigned int readColorEEPROM(unsigned int);
 void writeSpeedEEPROM(unsigned int);
@@ -191,7 +191,7 @@ void setup()
     digitalWrite(RELAY_PIN, HIGH); // Activate "power" to ws2812 strips
 
     // Get EEPROM memory
-    initLastState();
+    eeprom_initLastState();
 
     // LEDs - 2 virtual strips to transition between
     leds.init();
@@ -562,7 +562,7 @@ void ledBlinkSuccess()
 }
 
 // EEPROM
-void initLastState()
+void eeprom_initLastState()
 {
     debugln("\n[EEPROM] Starting data extratction!");
 

@@ -62,7 +62,6 @@
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
-#include <AsyncMqttClient.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include "htmlsite.h"
@@ -73,14 +72,18 @@
 #define VERSION 2.01
 
 // Debug
-#define DEBUG 0
+#define DEBUG 1
 #define ISRDEBUG 0
 
 #if DEBUG == 1
 #define debug(x) Serial.print(x)
+#define debugHEX(x) Serial.print(x, HEX)
+#define debugDEC(x) Serial.print(x, DEC)
 #define debugln(x) Serial.println(x)
 #else
 #define debug(x)
+#define debugHEX(x)
+#define debugDEC(x)
 #define debugln(x)
 #endif
 
@@ -91,8 +94,8 @@
 #endif
 
 // WiFi
-#define APSSID "Mercedes Star Control"
-#define APPSK "sploithd"
+#define APSSID "StarHost"
+#define APPSK "starnetwork"
 
 // EEPROM
 #define starAdress 0
@@ -169,7 +172,7 @@
 // TFL dimmed treshold
 #define tflDimTreshold 512
 
-// MQTT
+// UART topics
 #define status_topic "status"
 #define apiOvrOff_topic "api/ovroff"
 #define alive_topic "alive"
@@ -185,6 +188,16 @@
 
 #define emergency_avemsg "emeg_ave"
 #define starhost_avemsg "host_ave"
+
+// CAN topics
+#define CAN_txID 0x321
+#define CAN_DLC 8
+#define CAN_clientID 0x0
+
+#define CAN_tpc_ping 0x0
+#define CAN_tpc_selMode 0x1
+#define CAN_tpc_apiovr 0x2
+#define CAN_tpc_reset 0x3
 
 //***** VARIABLES & OBJECTS *****
 // Input State Variables
@@ -259,29 +272,35 @@ void IRAM_ATTR tflISR()
   portEXIT_CRITICAL(&ISRSync);
 }
 
-// LED Serial
+// Hardware Serials
+HardwareSerial canSerial(1);
 HardwareSerial ledSerial(2);
+
+// LED Serial
 unsigned long lastSAMSent = 0;
 const unsigned int SAMTimeout = 5000;
 String lastSerialMsg = "";
 bool serialClientConnection = false;
 bool serialClientInitConnection = false;
 
-// MQTT Client - V1.7
-AsyncMqttClient mqttClient;
-#define MQTT_HOST IPAddress(192, 168, 4, 1)
-#define MQTT_PORT 1883
-
-// API Emergency Mode
-bool apiOverrideOff;       // Stores whether API call was received to turn lights off
-int outputParamsBefore[6]; // Stores previous states of analog / digital outputs of relais and leds
-unsigned long myLastAveMsg = 0;
-const unsigned int aveMsgIntervall = 2500;
-unsigned long yourlastAveMsg = 0; // stores when last alive msg was received
-unsigned const int aveMsgTimeout = 10000;
+// Client timeout
+bool connected_clients[3] = {false, false, false}; // 0 - Emeg | 1 - Shift | 2 - CANChild
+bool con_clients_emegBefore = false;               // Stores whether StarEmeg was once connected
+bool apiOverrideOff;                               // Stores whether API call was received to turn lights off
 bool emergency = true;
-bool lostEmergencyConnection = true; // stores wheter connection to emergency mqtt client was lost after timeout
-bool emgcyWasConnected = false;
+int outputParamsBefore[6]; // Stores previous states of analog / digital outputs of relais and leds
+unsigned const int aveMsgTimeout = 10000;
+const unsigned int aveMsgIntervall = 2500; // interval in which host sends can rqst to ping alive
+unsigned long myLastAveMsg = 0;            // timer to send can ping rqst
+
+// Star Emergency - API Emergency Mode
+unsigned long emeg_lastAveMsg = 0; // stores when last alive msg was received
+
+// Star ShiftGuidance
+unsigned long shift_lastAveMsg = 0; // stores when last alive msg was received
+
+// CAN Child
+unsigned long canChild_lastAveMsg = 0; // stores when last alive msg was received
 
 // AsyncWebServer
 AsyncWebServer server(80);
@@ -339,24 +358,14 @@ bool starStarted = false;
 bool tflStarted = false;
 bool uglwStarted = false;
 
-// Wifi
-bool wifiInit = false;
-bool wifiGotConnected = false;
-bool wifiGotDisconnected = false;
-
-// Task Handler (Multithreading)
-/*void task1_handlers(void *pvParameters)
-{
-  while (true)
-  {
-    vTaskDelay(10);
-  }
-}*/
+// CAN
+char CAN_childMsg_alive[3] = {'C', 'A', '\0'};
+char CAN_childMsg_lives[3] = {'C', 'L', '\0'};
 
 //***** PROTOTYPES *****
 void handlers();
 void startupHandler();
-void initLastState();
+void eeprom_initLastState();
 void writeColorEEPROM(unsigned int, bool, unsigned int);
 unsigned int readColorEEPROM(bool, unsigned int);
 void writeSpeedEEPROM(unsigned int, bool);
@@ -401,48 +410,52 @@ void interpretSlider(int);
 void interpretButton(int);
 void uglw_sendValue(unsigned int, float, bool);
 void ledsCustomShow();
-void mqttAliveMessage();
-void onMqttMessage(char *, char *, AsyncMqttClientMessageProperties, size_t, size_t, size_t);
-void onMqttConnect(bool);
-void onMqttDisconnect(AsyncMqttClientDisconnectReason);
-void wifi_startConnection();
-void wifi_eventHandler();
-void checkWiFi();
+void uglw_modesel1();
+void uglw_modesel2();
+void uglw_modesel3();
+void uglw_modesel4();
+void CAN_sendMessage(unsigned long, byte, byte[]);
+void CAN_aliveMessage();
+uint8_t CAN_checkMessages();
+void CAN_onConnect_Emeg();
+void CAN_onDisconnect_Emeg();
+void wifi_startAP();
+void wifi_eventHandler(WiFiEvent_t);
 void setEmergencyMode();
 void resetEmergencyMode();
 void uglwWriteOutput();
 void uglwTFLRestrictionHandler();
 void serialLEDHandler();
 void serialAliveMsg();
+bool string_find(char *, char *);
 
 //***** SETUP *****
 void setup()
 {
   // Initialisation
-  if (DEBUG || ISRDEBUG)
-  {
-    Serial.begin(115200);
-  }
+  Serial.begin(115200);
+  canSerial.begin(38400);
   ledSerial.begin(115200);
+  canSerial.setTimeout(3);
   ledSerial.setTimeout(3);
-  EEPROM.begin(56);
+  while (!Serial || !canSerial || !ledSerial)
+    ;
+  ledSerial.print("status!host-wasborn$");
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
 
   // WiFi
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  WiFi.mode(WIFI_MODE_STA);
-  WiFi.begin("NOBROWN", "OUT!");
-  WiFi.disconnect(true, true);
+  // WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  // WiFi.mode(WIFI_MODE_AP);
+  // WiFi.softAP(APSSID, APPSK);
+  // WiFi.softAPdisconnect();
   WiFi.onEvent(wifi_eventHandler);
-  WiFi.setAutoReconnect(true);
-
-  // Serial "hello world"
-  ledSerial.print("status!host-wasborn$");
+  wifi_startAP();
 
   // Get EEPROM memory
-  initLastState();
+  EEPROM.begin(56);
+  eeprom_initLastState();
 
   // IOs
   pinMode(tflPin, INPUT); // interrupt
@@ -472,19 +485,12 @@ void setup()
   digitalWrite(relaisTFLLPin, LOW);
   digitalWrite(relaisTFLRPin, LOW);
 
-  // MQTT
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-  mqttClient.setClientId("starhost1");
-  mqttClient.onConnect(onMqttConnect);
-  mqttClient.onDisconnect(onMqttDisconnect);
-  mqttClient.onMessage(onMqttMessage);
-
   // ADC
   esp_adc_cal_characteristics_t adc_chars;
   esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
   vref = adc_chars.vref;
 
-  debugln("\n[StarControl-Host] Initialization completed...starting programm loop!\n");
+  debugln("\n[StarControl-Host] Initialization completed...starting programm loop\n");
 }
 
 //***** LOOP *****
@@ -502,12 +508,12 @@ void loop()
 
     uglwWriteOutput();
 
+    CAN_aliveMessage();
+
+    CAN_checkMessages();
+
     startupHandler();
   } while (!starStarted || !tflStarted || !uglwStarted);
-
-  mqttAliveMessage();
-
-  checkWiFi();
 
   handlers();
 }
@@ -1075,9 +1081,7 @@ void strobeStart(bool execMQTT)
     strobeActiveMQTT = true;
     uglwStarted = true;
     selectedModeBefStrobe = selectedModeBef;
-    char charMode = '4';
-    char *payload = &charMode;
-    mqttClient.publish(fxmode_topic, 0, false, payload);
+    uglw_modesel4();
     debugln("\n[STROBE] Current selected Mode: " + String(selectedModeBefStrobe));
   }
 
@@ -1100,19 +1104,17 @@ void strobeStop(bool execMQTT)
 
   if (execMQTT)
   {
-    char charMode = '5';
-    char *payload = &charMode;
+    debugln("\n[STROBE] Loading before selected Mode: " + String(selectedModeBefStrobe));
     if (selectedModeBefStrobe == 1)
-      *payload = '1';
+      uglw_modesel1();
     else if (selectedModeBefStrobe == 2)
-      *payload = '2';
+      uglw_modesel2();
     else if (selectedModeBefStrobe == 3)
-      *payload = '3';
+      uglw_modesel3();
     else if (selectedModeBefStrobe == 4)
-      *payload = '4';
-
-    debugln("\n[STROBE] Loading before selected Mode: " + String(*payload));
-    mqttClient.publish(fxmode_topic, 0, false, payload);
+      uglw_modesel4();
+    else
+      debugln("\n[STROBE] FX Mode - ERROR thrown concerning mode (strobestop)");
   }
 
   ledcWrite(0, strobeDataBefore[0]);
@@ -1260,11 +1262,12 @@ void tflISRInterpret()
 }
 
 // EEPROM
-void initLastState()
+void eeprom_initLastState()
 {
   debugln("\n[EEPROM] Starting data extratction!");
 
   // Betriebsmodus State
+  EEPROM.write(betriebsmodusAdress, 1); // TODO
   int bmcontent = int(EEPROM.read(betriebsmodusAdress));
 
   debugln("[EEPROM] Star Modus: " + String(bmcontent));
@@ -1315,6 +1318,7 @@ void initLastState()
   }
 
   // TFL Mode State
+  EEPROM.write(tflModeAdress, 1);                       // TODO
   int tflModeContent = int(EEPROM.read(tflModeAdress)); // read EEPROM
 
   debugln("[EEPROM] TFL Modus: " + String(tflModeContent));
@@ -1365,6 +1369,7 @@ void initLastState()
   }
 
   // Fade Modus State
+  EEPROM.write(fademodusAdress, 1);                    // TODO
   int fadeContent = int(EEPROM.read(fademodusAdress)); // read EEPROM
 
   debugln("[EEPROM] Fade Modus: " + String(starContent));
@@ -1380,7 +1385,7 @@ void initLastState()
   else // if no logic state
   {
     debugln("[EEPROM] Reading failed - Fade Modus");
-    EEPROM.write(fademodusAdress, 0); // then write star off
+    EEPROM.write(fademodusAdress, 1); // then write fade on
     fadeMode = false;
   }
 
@@ -1571,7 +1576,7 @@ void initLastState()
     EEPROM.write(color2_3Adress, led_color2); // then no color
   }
 
-  // LEDs Color 2
+  // LEDs Color 3
   unsigned int colorContent3 = readColorEEPROM(false, 3);
 
   debugln("[EEPROM] LEDs - Color 3: " + String(colorContent3));
@@ -1608,6 +1613,8 @@ void initLastState()
   sliderValues[4] = led_brtns;
 
   // LEDs Speed
+  writeSpeedEEPROM(100, false); // TODO
+  writeSpeedEEPROM(100, true);  // TODO
   unsigned int speedContent = readSpeedEEPROM(false);
 
   debugln("[EEPROM] LEDs - Speed: " + String(speedContent));
@@ -1686,6 +1693,7 @@ void initLastState()
   sliderValuesFloat[1] = batVoltOffset;
 
   // Favorite UGLW Mode
+  EEPROM.write(favoriteModeAdress, 12); // TODO
   int favMode = EEPROM.read(favoriteModeAdress);
 
   debugln("[EEPROM] Favorite UGLW Mode: " + String(favMode));
@@ -1768,7 +1776,7 @@ void initLastState()
   // Favorite UGLW Speed
   unsigned int favSpeed = readSpeedEEPROM(true);
 
-  debugln("[EEPROM] Favorite UGLW Brightness: " + String(favSpeed));
+  debugln("[EEPROM] Favorite UGLW Speed: " + String(favSpeed));
 
   if (favSpeed >= 0 && favSpeed <= 65535)
   {
@@ -3025,7 +3033,7 @@ void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) //
       if (selectedMode == 1)
         ledSerial.print("mode!" + String(keyI) + "$");
       else if (selectedMode == 2)
-        mqttClient.publish(fxmode_topic, 0, 0, "2");
+        uglw_modesel2();
     }
     else
       ledSerial.print("mode!" + String(keyI) + "$");
@@ -3309,286 +3317,391 @@ void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) //
   debugln("\n[HTTP] Underglow " + retval + " was selected!");
 }
 
-// MQTT Handlers
-void mqttAliveMessage()
+// Mode selection functions
+void uglw_modesel1()
 {
-  if (((millis() > (myLastAveMsg + aveMsgIntervall)) || (myLastAveMsg == 0U)) && mqttClient.connected())
-  {
-    myLastAveMsg = millis();
-    mqttClient.publish(alive_topic, 0, false, starhost_avemsg);
-  }
-
-  if (millis() > (yourlastAveMsg + aveMsgTimeout) && emgcyWasConnected && !lostEmergencyConnection)
-  {
-    yourlastAveMsg = millis();
-    setEmergencyMode();
-    lostEmergencyConnection = true;
-    debugln("\n[Timeout-WD] Emergency MQTT Client timed out!");
-  }
-  else if (millis() == (yourlastAveMsg + aveMsgTimeout - 2000) && emgcyWasConnected && !lostEmergencyConnection)
-    debugln("\n[Timeout-WD] Emergency MQTT Client silent -2 seconds...");
-  else if (millis() == (yourlastAveMsg + aveMsgTimeout - 1000) && emgcyWasConnected && !lostEmergencyConnection)
-    debugln("\n[Timeout-WD] Emergency MQTT Client silent -1 second...");
+  selectedMode = 1;
+  if (selectedModeBef == 4)
+    strobeStop(false);
+  else if (selectedModeBef == 3)
+    tflBool = tflBoolBef;
 }
 
-void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total)
+void uglw_modesel2()
 {
-  String topicStr = String(topic);
-  String payloadStr = String(payload);
-
-  debugln("\n[MQTT] Received message - topic: " + topicStr + " | payload: " + payloadStr);
-
-  if (topicStr == status_topic) // subscribed topic defined in header ! Topic subscription is done in the reconnect() Function below !
+  selectedMode = 2;
+  if (selectedModeBef == 4)
+    strobeStop(false);
+  else if (selectedModeBef == 3)
+    tflBool = tflBoolBef;
+  if (strobeActiveMQTT)
   {
-    debugln("\n[MQTT] Subscribed topic - Status: " + payloadStr);
+    selectedModeBef = 4;
+    strobeActiveMQTT = false;
   }
-  else if (topicStr == reset_topic)
+  if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
+    uglw_sendValue(5, 0); // init data transmission
+  uglw_sendValue(3, led_speed);
+  if (selectedModeBef != 3 || (selectedModeBef == 3 && tflBool))
+    uglw_sendValue(2, led_brtns);
+  else if (selectedModeBef == 3 && !tflBool)
+    uglw_sendValue(2, 0);
+  uglw_sendValue(1, led_color1);
+  uglw_sendValue(7, led_color2);
+  uglw_sendValue(8, led_color3);
+  uglw_sendValue(9, fadeSize);
+  uglw_sendValue(0, led_mode);
+  if (selectedModeBef == 2 || selectedModeBef == 3)
+    uglw_sendValue(5, 5); // transition duration 5ms * 100
+  else if (selectedModeBef == 4)
+    uglw_sendValue(5, 999); // transition duration 0ms
+  if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
+    uglw_sendValue(5, 1); // finish data transmission
+  if (uglwMotorBlock && !uglwMotorBlockSent)
   {
-    ledSerial.print(String(reset_topic) + "!1$");
-    WiFi.mode(WIFI_OFF);
-    delay(250);
-    debugln("\n*****************************************");
-    debugln("\n[RESET] Restarting at your wish master ;)");
-    debugln("\n*****************************************");
-    ESP.restart();
+    uglw_sendValue(4, 1U, true);
+    uglwMotorBlockSent = true;
   }
-  else if (topicStr == apiOvrOff_topic)
+}
+
+void uglw_modesel3()
+{
+  selectedMode = 3;
+  tflBoolBef = tflBool;
+  if (selectedModeBef == 4)
+    strobeStop(false);
+  if (strobeActiveMQTT)
   {
-    if (payloadStr == "1")
-    {
-      selectedMode = 1;
-      emgcyWasConnected = true;
-      apiOverrideOff = true;
-      EEPROM.write(apiOverrideOffAdress, 1);
-      EEPROM.commit();
-      setEmergencyMode();
-      lostEmergencyConnection = false;
-      yourlastAveMsg = millis();
-    }
-    else if (payloadStr == "0")
-    {
-      selectedMode = 2;
-      emgcyWasConnected = true;
-      apiOverrideOff = false;
-      EEPROM.write(apiOverrideOffAdress, 0);
-      EEPROM.commit();
-      resetEmergencyMode();
-      lostEmergencyConnection = false;
-      yourlastAveMsg = millis();
-    }
-    debugln("\n[MQTT] Subscribed topic - Setting 'apiOverrideOff' to '" + payloadStr + "'");
+    selectedModeBef = 4;
+    strobeActiveMQTT = false;
   }
-  else if (topicStr == alive_topic)
+  if (selectedModeBef == 2 || selectedModeBef == 4)
+    uglw_sendValue(5, 0); // init data transmission
+  uglw_sendValue(3, favoriteSpeed);
+  uglw_sendValue(2, favoriteBrtns);
+  uglw_sendValue(1, favoriteColor1);
+  uglw_sendValue(7, favoriteColor2);
+  uglw_sendValue(8, favoriteColor3);
+  uglw_sendValue(9, favoriteFadeSize);
+  uglw_sendValue(0, favoriteMode);
+  if (selectedModeBef == 2)
+    uglw_sendValue(5, 5); // transition duration 5ms * 100
+  else if (selectedModeBef == 4)
+    uglw_sendValue(5, 999); // transition duration 0ms
+  if (uglwMotorBlock)
   {
-    if (payloadStr == emergency_avemsg)
-    {
-      yourlastAveMsg = millis();
-      lostEmergencyConnection = false;
-      debugln("\n[MQTT] Subscribed topic - Alive Message!");
-    }
+    uglw_sendValue(4, 2U, true);
+    uglwMotorBlockSent = false;
   }
-  else if (topicStr == fxmode_topic)
+  if (selectedModeBef == 2 || selectedModeBef == 4)
+    uglw_sendValue(5, 1); // finish data transmission
+}
+
+void uglw_modesel4()
+{
+  selectedMode = 4;
+  if (selectedModeBef == 2 || selectedModeBef == 3)
+    uglw_sendValue(5, 0); // init data transmission
+  if (selectedModeBef == 3)
+    tflBool = tflBoolBef;
+  uglw_sendValue(3, LED_SPEED_STROBE);
+  uglw_sendValue(2, 255U);
+  uglw_sendValue(1, 16777215);
+  uglw_sendValue(7, 0);
+  uglw_sendValue(8, 0);
+  uglw_sendValue(0, LED_MODE_STROBE);
+  if (selectedModeBef == 2 || selectedModeBef == 3)
   {
-    selectedMode = payloadStr.toInt();
-    switch (selectedMode)
+    uglw_sendValue(5, 999); // transition duration 0ms
+    if (uglwMotorBlock)
     {
-    case 1:
-      selectedMode = 1;
-      if (selectedModeBef == 4)
-        strobeStop(false);
-      else if (selectedModeBef == 3)
-        tflBool = tflBoolBef;
-      debugln("\n[MQTT] Subscribed topic - FX Mode Blackout");
-      break;
-
-    case 2:
-      selectedMode = 2;
-      if (selectedModeBef == 4)
-        strobeStop(false);
-      else if (selectedModeBef == 3)
-        tflBool = tflBoolBef;
-      if (strobeActiveMQTT)
-      {
-        selectedModeBef = 4;
-        strobeActiveMQTT = false;
-      }
-      if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
-        uglw_sendValue(5, 0); // init data transmission
-      uglw_sendValue(3, led_speed);
-      if (selectedModeBef != 3 || (selectedModeBef == 3 && tflBool))
-        uglw_sendValue(2, led_brtns);
-      else if (selectedModeBef == 3 && !tflBool)
-        uglw_sendValue(2, 0);
-      uglw_sendValue(1, led_color1);
-      uglw_sendValue(7, led_color2);
-      uglw_sendValue(8, led_color3);
-      uglw_sendValue(9, fadeSize);
-      uglw_sendValue(0, led_mode);
-      if (selectedModeBef == 2 || selectedModeBef == 3)
-        uglw_sendValue(5, 5); // transition duration 5ms * 100
-      else if (selectedModeBef == 4)
-        uglw_sendValue(5, 999); // transition duration 0ms
-      if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
-        uglw_sendValue(5, 1); // finish data transmission
-      if (uglwMotorBlock && !uglwMotorBlockSent)
-      {
-        uglw_sendValue(4, 1U, true);
-        uglwMotorBlockSent = true;
-      }
-      debugln("\n[MQTT] Subscribed topic - FX Mode HTML Ctrld");
-      break;
-
-    case 3:
-      selectedMode = 3;
-      tflBoolBef = tflBool;
-      if (selectedModeBef == 4)
-        strobeStop(false);
-      if (strobeActiveMQTT)
-      {
-        selectedModeBef = 4;
-        strobeActiveMQTT = false;
-      }
-      if (selectedModeBef == 2 || selectedModeBef == 4)
-        uglw_sendValue(5, 0); // init data transmission
-      uglw_sendValue(3, favoriteSpeed);
-      uglw_sendValue(2, favoriteBrtns);
-      uglw_sendValue(1, favoriteColor1);
-      uglw_sendValue(7, favoriteColor2);
-      uglw_sendValue(8, favoriteColor3);
-      uglw_sendValue(9, favoriteFadeSize);
-      uglw_sendValue(0, favoriteMode);
-      if (selectedModeBef == 2)
-        uglw_sendValue(5, 5); // transition duration 5ms * 100
-      else if (selectedModeBef == 4)
-        uglw_sendValue(5, 999); // transition duration 0ms
-      if (uglwMotorBlock)
-      {
-        uglw_sendValue(4, 2U, true);
-        uglwMotorBlockSent = false;
-      }
-      if (selectedModeBef == 2 || selectedModeBef == 4)
-        uglw_sendValue(5, 1); // finish data transmission
-      debugln("\n[MQTT] Subscribed topic - FX Mode Favorite");
-      break;
-
-    case 4:
-      selectedMode = 4;
-      if (selectedModeBef == 2 || selectedModeBef == 3)
-        uglw_sendValue(5, 0); // init data transmission
-      if (selectedModeBef == 3)
-        tflBool = tflBoolBef;
-      uglw_sendValue(3, LED_SPEED_STROBE);
-      uglw_sendValue(2, 255U);
-      uglw_sendValue(1, 16777215);
-      uglw_sendValue(7, 0);
-      uglw_sendValue(8, 0);
-      uglw_sendValue(0, LED_MODE_STROBE);
-      if (selectedModeBef == 2 || selectedModeBef == 3)
-      {
-        uglw_sendValue(5, 999); // transition duration 0ms
-        if (uglwMotorBlock)
-        {
-          uglw_sendValue(4, 2U, true);
-          uglwMotorBlockSent = false;
-        }
-        uglw_sendValue(5, 1); // finish data transmission
-      }
-      else
-      {
-        if (uglwMotorBlock)
-        {
-          uglw_sendValue(4, 2U, true);
-          uglwMotorBlockSent = false;
-        }
-      }
-
-      strobeStart(false);
-
-      debugln("\n[MQTT] Subscribed topic - FX Mode Strobe");
-      break;
-
-    case 5:
-      debugln("\n[MQTT] Subscribed topic - FX Mode - ERROR thrown mode 5 (strobestop)");
-      break;
-
-    default:
-      break;
+      uglw_sendValue(4, 2U, true);
+      uglwMotorBlockSent = false;
     }
-    if (!httpStrobe)
-      selectedModeBef = selectedMode;
+    uglw_sendValue(5, 1); // finish data transmission
   }
   else
   {
-    debugln("\n[MQTT] Not a subscribed topic!");
+    if (uglwMotorBlock)
+    {
+      uglw_sendValue(4, 2U, true);
+      uglwMotorBlockSent = false;
+    }
   }
+  strobeStart(false);
 }
 
-void onMqttConnect(bool sessionPresent)
+// CAN Handlers
+void CAN_sendMessage(unsigned long txID, byte dlc, byte payload[])
 {
-  lostEmergencyConnection = false;
-  yourlastAveMsg = millis();
-  if (!apiOverrideOff)
-    resetEmergencyMode();
-  debugln("\n[MQTT] Connected to broker!");
-  mqttClient.subscribe(status_topic, 0);
-  mqttClient.subscribe(apiOvrOff_topic, 0);
-  mqttClient.subscribe(alive_topic, 0);
-  mqttClient.subscribe(mode_topic, 0);
-  mqttClient.subscribe(brtns_topic, 0);
-  mqttClient.subscribe(color_topic, 0);
-  mqttClient.subscribe(speed_topic, 0);
-  mqttClient.subscribe(fxmode_topic, 0);
-  mqttClient.subscribe(reset_topic, 0);
-  mqttClient.publish(status_topic, 0, false, "starhost1 active!");
-}
-
-void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
-{
-  uint8_t reasonInt = (int)reason;
-  debug("\n[MQTT] Disconnect reason: " + String(reasonInt) + " - ");
-  switch (reason)
+  canSerial.print(txID, HEX);
+  for (int i = 0; i < (int)dlc; i++)
   {
-  case AsyncMqttClientDisconnectReason::TCP_DISCONNECTED:
-    debugln("TCP_DISCONNECTED");
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_UNACCEPTABLE_PROTOCOL_VERSION:
-    debugln("MQTT_UNACCEPTABLE_PROTOCOL_VERSION");
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_IDENTIFIER_REJECTED:
-    debugln("MQTT_IDENTIFIER_REJECTED");
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_SERVER_UNAVAILABLE:
-    debugln("MQTT_SERVER_UNAVAILABLE");
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_MALFORMED_CREDENTIALS:
-    debugln("MQTT_MALFORMED_CREDENTIALS");
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_NOT_AUTHORIZED:
-    debugln("MQTT_NOT_AUTHORIZED");
-    break;
-  case AsyncMqttClientDisconnectReason::ESP8266_NOT_ENOUGH_SPACE:
-    debugln("ESP8266_NOT_ENOUGH_SPACE");
-    break;
-  case AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT:
-    debugln("TLS_BAD_FINGERPRINT");
-    break;
-  default:
-    break;
+    canSerial.print(',');
+    if (payload[i] < 16)
+      canSerial.print("0");
+    canSerial.print(payload[i], HEX);
+  }
+  canSerial.print('!');
+}
+
+void CAN_aliveMessage()
+{
+  if (((millis() > (myLastAveMsg + aveMsgIntervall)) || (myLastAveMsg == 0U)) && connected_clients[2])
+  {
+    myLastAveMsg = millis();
+    byte payload[CAN_DLC] = {CAN_clientID, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0};
+    CAN_sendMessage(CAN_txID, CAN_DLC, payload); // Sending ping rqst to clients
+    canSerial.print("CC!");
   }
 
-  mqttClient.clearQueue();
-  lostEmergencyConnection = true;
-  if (emgcyWasConnected)
+  // Timeout StarEmergency
+  if (millis() > (emeg_lastAveMsg + aveMsgTimeout) && (connected_clients[0] || !con_clients_emegBefore))
+  {
+    con_clients_emegBefore = true;
+    connected_clients[0] = false;
     setEmergencyMode();
+    debugln("\n[Timeout-WD] StarClient Emergency timed out!");
+  }
+
+  // Timeout ShiftGuidance
+  if (millis() > (shift_lastAveMsg + aveMsgTimeout) && connected_clients[1])
+  {
+    connected_clients[1] = false;
+    debugln("\n[Timeout-WD] StarClient ShiftGuidance timed out!");
+  }
+
+  // Timeout CANChild
+  if (millis() > (canChild_lastAveMsg + aveMsgTimeout) && connected_clients[2])
+  {
+    connected_clients[2] = false;
+    debugln("\n[Timeout-WD] CANChild timed out!");
+  }
+}
+
+uint8_t CAN_checkMessages()
+{
+  if (!canSerial.available())
+    return 1;
+
+  String rxMsg = canSerial.readStringUntil('!');
+
+  // debugln("[UART] RX MSG: " + String(rxMsg));
+
+  // Preparing serial string --> getting length and converting to char ary
+  unsigned int msgLength = rxMsg.length();
+  char rxMsgChar[msgLength];
+  rxMsg.toCharArray(rxMsgChar, msgLength + 1, 0);
+
+  // Checking for can child readiness
+  if (string_find(rxMsgChar, CAN_childMsg_alive))
+  {
+    if (!connected_clients[2])
+      debugln("[CAN] CANChild connected!");
+    connected_clients[2] = true;
+    canChild_lastAveMsg = millis();
+    canSerial.print("PA!");
+    return 0;
+  }
+  else if (string_find(rxMsgChar, CAN_childMsg_lives))
+  {
+    connected_clients[2] = true;
+    canChild_lastAveMsg = millis();
+    return 0;
+  }
+
+  // Extracting can msg id value
+  char idChars[4] = {rxMsgChar[0], rxMsgChar[1], rxMsgChar[2], '\0'};
+  unsigned long id = (unsigned long)strtol(idChars, 0, 16);
+
+  if (id != 0x321) // Filter unwanted ids
+  {
+    debug("[CAN] Filtering ID: ");
+    debugHEX(id);
+    debugln();
+    return 1;
+  }
+
+  // Converting two chars into one hex value
+  byte payload[CAN_DLC];
+  for (int i = 0; i < CAN_DLC; i++)
+  {
+    char hexChars[3] = {rxMsgChar[4 + i * 3], rxMsgChar[5 + i * 3], '\0'};
+    payload[i] = (byte)strtol(hexChars, 0, 16);
+  }
+
+  // Debug output
+  debug("\n[CAN] RX: ID: ");
+  debugHEX(id);
+  debug(" | DATA: ");
+  for (int i = 0; i < CAN_DLC; i++)
+  {
+    if ((int)payload[i] < 16)
+      debug("0");
+    debugHEX(payload[i]);
+    debug(" ");
+  }
+
+  // Message interpretation
+  if (payload[2] == CAN_tpc_reset)
+  {
+    if (payload[0] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
+    {
+      ledSerial.print(String(reset_topic) + "!1$");
+      canSerial.print("CR!");
+      WiFi.mode(WIFI_OFF);
+      delay(250);
+      debugln("\n*****************************************");
+      debugln("\n[RESET] Restarting at your wish master ;)");
+      debugln("\n*****************************************");
+      ESP.restart();
+    }
+    else
+      debugln("[CAN] ERR Topic Reset: Unknown message!");
+  }
+  else if (payload[2] == CAN_tpc_apiovr)
+  {
+    if (payload[0] = 0x1 && payload[1] == 0x1)
+    {
+      if (payload[3] == 0x1)
+      {
+        selectedMode = 1;
+        apiOverrideOff = true;
+        EEPROM.write(apiOverrideOffAdress, 1);
+        EEPROM.commit();
+        setEmergencyMode();
+        emeg_lastAveMsg = millis();
+        connected_clients[0] = true;
+      }
+      else if (payload[3] == 0x0)
+      {
+        selectedMode = 2;
+        apiOverrideOff = false;
+        EEPROM.write(apiOverrideOffAdress, 0);
+        EEPROM.commit();
+        resetEmergencyMode();
+        emeg_lastAveMsg = millis();
+        connected_clients[0] = true;
+      }
+      debugln("\n[CAN] Message: APIOVR set to " + String(payload[3]) + "");
+    }
+    else
+      debugln("[CAN] ERR Topic APIOVR: Unknown message!");
+  }
+  else if (payload[2] == CAN_tpc_ping)
+  {
+    if (payload[1] == 0x0) // Request
+    {
+      debugln("\n[CAN] Message: Ping request");
+      byte txPL[CAN_DLC] = {CAN_clientID, 0x1, CAN_tpc_ping, 0x1, 0x0, 0x0, 0x0, 0x0};
+      CAN_sendMessage(CAN_txID, CAN_DLC, txPL);
+    }
+    else if (payload[1] == 0x1) // Answer
+    {
+      if (payload[0] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
+      {
+        debugln("\n[CAN] Message: Ping from StarEmergency");
+        if (!connected_clients[0])
+        {
+          con_clients_emegBefore = true;
+          if (!apiOverrideOff)
+            resetEmergencyMode();
+          debugln("[Client] StarEmergency connected!");
+        }
+        emeg_lastAveMsg = millis();
+        connected_clients[0] = true;
+      }
+      else if (payload[2] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
+      {
+        debugln("\n[CAN] Message: Ping from StarShiftGuidance");
+        if (!connected_clients[1])
+          debugln("[Client] ShiftGuidance connected!");
+        shift_lastAveMsg = millis();
+        connected_clients[1] = true;
+      }
+      else
+        debugln("[CAN] ERR Topic Ping: Unknown client!");
+    }
+    else
+      debugln("[CAN] ERR Topic Ping: Unknown message!");
+  }
+  else if (payload[2] == CAN_tpc_selMode)
+  {
+    if (payload[0] == 0x1 && payload[1] == 0x1)
+    {
+      selectedMode = (unsigned int)payload[3];
+      switch (selectedMode)
+      {
+      case 0x1:
+        uglw_modesel1();
+        debugln("\n[CAN] Message: FX Mode Blackout");
+        break;
+
+      case 0x2:
+        uglw_modesel2();
+        debugln("\n[CAN] Message: FX Mode HTML controlled");
+        break;
+
+      case 0x3:
+        uglw_modesel3();
+        debugln("\n[CAN] Message: FX Mode Favorite");
+        break;
+
+      case 0x4:
+        uglw_modesel4();
+        debugln("\n[CAN] Message: FX Mode Strobe");
+        break;
+
+      default:
+        debugln("\n[CAN] ERR Topic Sel. Mode: Unknown mode!");
+        break;
+      }
+      if (!httpStrobe)
+        selectedModeBef = selectedMode;
+    }
+    else
+      debugln("[CAN] ERR Topic Sel. Mode: Unknown message!");
+  }
+  else
+  {
+    debugln("\n[CAN] ERR Not a subscribed topic!");
+  }
+
+  return 0;
 }
 
 // WiFi Handlers
-void wifi_startConnection()
+void wifi_startAP()
 {
+  // WiFi.setTxPower(WIFI_POWER_19_5dBm);
+  // WiFi.mode(WIFI_MODE_AP);
+  // String hostname = "starhost-" + String(random(100));
+  // WiFi.setHostname(hostname.c_str());
+  // WiFi.softAP(APSSID, APPSK);
+
+  // // IP
+  // debug("\n[WiFi] AP Host-IP: ");
+  // debugln(WiFi.softAPIP());
+
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
   WiFi.mode(WIFI_MODE_STA);
   String hostname = "starhost-" + String(random(100));
   WiFi.setHostname(hostname.c_str());
+  WiFi.begin("SploitOP", "sploitop");
+
+  // IP
+  debug("\n[WiFi] STA IP: ");
+  debugln(WiFi.localIP());
+
+  // OTA
+  ArduinoOTA.setHostname("starHost");
+  ArduinoOTA.begin();
+  debugln("\n[OTA] Service started!");
+
+  // AsyncWebServer
+  assignServerHandlers();
+  server.begin();
+  debugln("\n[HTTP] Webserver started!");
 }
 
 void wifi_eventHandler(WiFiEvent_t event)
@@ -3597,79 +3710,28 @@ void wifi_eventHandler(WiFiEvent_t event)
   {
   case SYSTEM_EVENT_WIFI_READY:
     debugln("\n[WiFi] Interface ready!");
-    WiFi.begin(APSSID, APPSK);
     break;
 
-  case SYSTEM_EVENT_STA_START:
-    debugln("\n[WiFi] Client started!");
+  case SYSTEM_EVENT_AP_START:
+    debugln("\n[WiFi] AP started!");
     break;
 
-  case SYSTEM_EVENT_STA_STOP:
-    debugln("\n[WiFi] Client stopped!");
+  case SYSTEM_EVENT_AP_STOP:
+    debugln("\n[WiFi] AP stopped!");
+    WiFi.softAPdisconnect();
+    wifi_startAP();
     break;
 
-  case SYSTEM_EVENT_STA_CONNECTED:
-    debugln("\n[WiFi] Connected to AP!");
+  case SYSTEM_EVENT_AP_STACONNECTED:
+    debugln("\n[WiFi] Station connected to AP!");
     break;
 
-  case SYSTEM_EVENT_STA_DISCONNECTED:
-    wifiGotDisconnected = true;
-    break;
-
-  case SYSTEM_EVENT_STA_GOT_IP:
-    wifiGotConnected = true;
+  case SYSTEM_EVENT_AP_STADISCONNECTED:
+    debugln("\n[WiFi] Station disconnected from AP!");
     break;
 
   default:
     break;
-  }
-}
-
-void checkWiFi()
-{
-  if (!wifiInit)
-  {
-    wifiInit = true;
-    wifi_startConnection();
-  }
-
-  if (wifiGotConnected)
-  {
-    wifiGotConnected = false;
-
-    // IP
-    debug("\n[WiFi] Obtained IP ");
-    debug(WiFi.localIP());
-    debugln("!");
-
-    // OTA
-    ArduinoOTA.setHostname("starhost");
-    ArduinoOTA.begin();
-    debugln("\n[OTA] Service started!");
-
-    // AsyncWebServer
-    assignServerHandlers();
-    server.begin();
-    debugln("\n[HTTP] Webserver started!");
-
-    // MQTT
-    mqttClient.connect();
-    debugln("\n[MQTT] Starting connection!");
-  }
-  else if (wifiGotDisconnected)
-  {
-    wifiGotDisconnected = false;
-
-    // Info
-    debugln("\n[WiFi] Disconnected from AP!");
-
-    // MQTT
-    mqttClient.disconnect();
-    debugln("\n[MQTT] Stopping connection!");
-
-    // WiFi Reconnect
-    WiFi.mode(WIFI_OFF);
-    wifi_startConnection();
   }
 }
 
@@ -3749,39 +3811,38 @@ void serialLEDHandler()
   {
     String topic = ledSerial.readStringUntil('!');
     String payload = ledSerial.readStringUntil('$');
+    static unsigned long timer_initConnect = 0;
+
+    // debugln("[Serial] Message arrived - Topic: '" + topic + "' - Payload: '" + payload + "'\n");
 
     if (String(topic) == "status")
     {
-      if (String(payload) == "cnt-wtg")
+      if (String(payload) == "cnt-wtg" && ((millis() > timer_initConnect + 3000) || !serialClientInitConnection))
       {
-        if (serialClientConnection || !serialClientInitConnection)
-        {
-          serialClientConnection = false;
-          debugln("\n[Serial] Initializing client communication!");
-          uglwStarted = true;
-        }
+        timer_initConnect = millis();
         ledSerial.print("status!host-alive$");
         if (emergency)
           lastSerialMsg = String(apiOvrOff_topic) + "!1$";
         else
           lastSerialMsg = String(apiOvrOff_topic) + "!0$";
-        delay(10);
-        ledSerial.print(lastSerialMsg);
-        uglwTFLRestrictionHandler();
-        uglw_sendValue(6, transitionCoefficient);
-        if (uglwMotorBlock || uglwTFLRestActive)
-          uglw_sendValue(4, 1U, true);
-        else if (!uglwMotorBlock && !uglwTFLRestActive)
-          uglw_sendValue(4, 0U, true);
-        debugln("[Serial] Message arrived - Topic: '" + topic + "' - Payload: '" + payload + "'\n");
+        if (!serialClientInitConnection)
+        {
+          serialClientInitConnection = true;
+          debugln("\n[Serial] Initializing client communication!");
+          uglwStarted = true;
+          ledSerial.print(lastSerialMsg);
+          uglwTFLRestrictionHandler();
+          uglw_sendValue(6, transitionCoefficient);
+          if (uglwMotorBlock || uglwTFLRestActive)
+            uglw_sendValue(4, 1U, true);
+          else if (!uglwMotorBlock && !uglwTFLRestActive)
+            uglw_sendValue(4, 0U, true);
+        }
       }
       else if (String(payload) == "cnctd")
       {
         serialClientConnection = true;
-        if (!serialClientInitConnection)
-          serialClientInitConnection = true;
         debugln("\n[Serial] Client successfully connected!");
-        debugln("[Serial] Message arrived - Topic: '" + topic + "' - Payload: '" + payload + "'\n");
       }
     }
   }
@@ -3796,4 +3857,26 @@ void serialAliveMsg()
     lastSAMSent = millis();
     ledSerial.print("status!host-alive$");
   }
+}
+
+bool string_find(char *haystack, char *needle)
+{
+  int compareOffset = 0;
+  while (*haystack)
+  {
+    if (*haystack == *needle)
+    {
+      compareOffset = 0;
+      while (haystack[compareOffset] == needle[compareOffset])
+      {
+        compareOffset++;
+        if (needle[compareOffset] == '\0')
+        {
+          return true;
+        }
+      }
+    }
+    haystack++;
+  }
+  return false;
 }
