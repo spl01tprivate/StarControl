@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
 const char index_html[] PROGMEM = R"rawliteral(
-    <!DOCTYPE HTML>
+<!DOCTYPE HTML>
 <html>
 
 <head>
@@ -22,7 +22,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
 
         h4 {
-            font-size: 1.5rem;
+            font-size: 1.75rem;
             color: #ffffff
         }
 
@@ -125,6 +125,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         .sliderMainText {
             font-size: 1.5rem;
+            color: white;
         }
 
         .sliderFadeSpeed {
@@ -367,13 +368,13 @@ const char index_html[] PROGMEM = R"rawliteral(
         .infoText1 {
             font-size: 1.5rem;
             color: white;
-            padding-right: 30px;
+            padding-right: 25px;
         }
 
         .infoText2 {
             font-size: 1.5rem;
             color: white;
-            padding-left: 30px;
+            padding-left: 25px;
         }
 
         .infoText3 {
@@ -381,25 +382,51 @@ const char index_html[] PROGMEM = R"rawliteral(
             color: white;
             font-weight: bold;
         }
+
+        .authorText {
+            font-size: 1.0rem;
+            font-family: monospace;
+            color: white;
+        }
     </style>
 </head>
 
 <body>
+    <!--  -->
+    <!-- Heading -->
+    <!--  -->
     <h2>Star Control</h2>
     <hr>
-    <p>
+
+
+    <!--  -->
+    <!-- Main Lights & Sliders -->
+    <!--  -->
+    <!-- Light state info text (Star & TFL) -->
+    <div>
+        <br>
         <span id="starStateText" class="starStateTextCSS">%STARSTATETEXT%</span>
         <span id="tflStateText" class="tflStateTextCSS">%TFLSTATETEXT%</span>
-    </p>
+        <br><br>
+    </div>
     <hr>
 
-    <!-- Main Sliders -->
-    <p><span id="slider0ValueText" class="sliderMainText">%SLIDERTEXT0%</span></p>
-    <p><input type="range" onchange="updateSliderStar(this)" id="slider0" min="1" max="3" value="%SLIDERVALUE0%"
-            step="1" class="sliderMain"></p>
-    <p><span id="slider1ValueText" class="sliderMainText">%SLIDERTEXT1%</span></p>
-    <p><input type="range" onchange="updateSliderTFL(this)" id="slider1" min="1" max="3" value="%SLIDERVALUE1%" step="1"
-            class="sliderMain"></p>
+    <!-- Star Slider with Text -->
+    <br><br>
+    <div><span id="slider0ValueText" class="sliderMainText">%SLIDERTEXT0%</span>
+        <br><br><br>
+        <input type="range" onchange="updateSliderStar(this)" id="slider0" min="1" max="3" value="%SLIDERVALUE0%"
+            step="1" class="sliderMain">
+    </div>
+    <br><br>
+
+    <!-- TFL Slider with Text -->
+    <div><span id="slider1ValueText" class="sliderMainText">%SLIDERTEXT1%</span>
+        <br><br><br>
+        <input type="range" onchange="updateSliderTFL(this)" id="slider1" min="1" max="3" value="%SLIDERVALUE1%"
+            step="1" class="sliderMain">
+    </div>
+    <br><br><br>
     <hr>
 
     <!-- Strobe Button -->
@@ -409,8 +436,18 @@ const char index_html[] PROGMEM = R"rawliteral(
     <br><br>
     <hr>
 
-    <!-- Dropdown Menu & UGLW Sliders -->
+
+    <!--  -->
+    <!-- Underglow controls -->
+    <!--  -->
     <h4>Underglow</h4>
+    <br>
+
+    <!-- Currently selected Mode - text -->
+    <div><span id="uglwSelMode" class="sliderUGLWSpeedText">%UGLWSELMODETEXT%</span></div>
+    <br><br>
+
+    <!-- Mode dropdown -->
     <div class="dropdown0">
         <button onmousedown="showDropdown(dropdownID0)" class="dropdownbtn0">Mode</button>
         <div id="dropdownID0" class="dropdown-content0">
@@ -456,8 +493,20 @@ const char index_html[] PROGMEM = R"rawliteral(
             <a onmousedown="dropdownButtonPressed(0, 56)">Rain (56)</a>
         </div>
     </div>
+    <br><br><br>
+
+    <!-- Favorite Mode - Input box with text -->
+    <div><span id="slider8ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT8%</span>
+        <br><br>
+        <form action="">
+            <input type="text" onchange="updateSlider(this)" id="favoriteUGLWMode">
+        </form>
+    </div>
+    <br><br><br>
+
+    <!-- Color Dropdowns -->
     <div class="dropdown1">
-        <button onmousedown="showDropdown(dropdownID1)" class="dropdownbtn1">Color</button>
+        <button onmousedown="showDropdown(dropdownID1)" class="dropdownbtn1">Color 1</button>
         <div id="dropdownID1" class="dropdown-content1">
             <a onmousedown="dropdownButtonPressed(1, 0)">Red</a>
             <a onmousedown="dropdownButtonPressed(1, 1)">Green</a>
@@ -469,68 +518,180 @@ const char index_html[] PROGMEM = R"rawliteral(
             <a onmousedown="dropdownButtonPressed(1, 7)">Purple</a>
             <a onmousedown="dropdownButtonPressed(1, 8)">Orange</a>
             <a onmousedown="dropdownButtonPressed(1, 9)">Pink</a>
+            <a onmousedown="dropdownButtonPressed(1, 10)">Black</a>
         </div>
     </div>
-    <p><span id="slider8ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT8%</span></p>
-    <p>
-    <form action="">
-        <input type="text" onchange="updateSlider(this)" id="favoriteUGLWMode">
-    </form>
-    </p>
-    <p><span id="slider4ValueText" class="sliderUGLWBrtnsText">%SLIDERTEXT4%</span></p>
-    <p><input type="range" onchange="updateSlider(this)" id="slider4" min="0" max="255" value="%SLIDERVALUE4%" step="1"
-            class="sliderUGLW"></p>
-    <p><span id="slider5ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT5%</span></p>
-    <p><input type="range" onchange="updateSlider(this)" id="slider5" min="0" max="65000" value="%SLIDERVALUE5%"
-            step="1" class="sliderUGLW"></p>
-    <p>
+    <div class="dropdown1">
+        <button onmousedown="showDropdown(dropdownID7)" class="dropdownbtn1">Color 2</button>
+        <div id="dropdownID7" class="dropdown-content1">
+            <a onmousedown="dropdownButtonPressed(7, 0)">Red</a>
+            <a onmousedown="dropdownButtonPressed(7, 1)">Green</a>
+            <a onmousedown="dropdownButtonPressed(7, 2)">Blue</a>
+            <a onmousedown="dropdownButtonPressed(7, 3)">White</a>
+            <a onmousedown="dropdownButtonPressed(7, 4)">Yellow</a>
+            <a onmousedown="dropdownButtonPressed(7, 5)">Cyan</a>
+            <a onmousedown="dropdownButtonPressed(7, 6)">Magenta</a>
+            <a onmousedown="dropdownButtonPressed(7, 7)">Purple</a>
+            <a onmousedown="dropdownButtonPressed(7, 8)">Orange</a>
+            <a onmousedown="dropdownButtonPressed(7, 9)">Pink</a>
+            <a onmousedown="dropdownButtonPressed(7, 10)">Black</a>
+        </div>
+    </div>
+    <br><br>
+    <div class="dropdown1">
+        <button onmousedown="showDropdown(dropdownID8)" class="dropdownbtn1">Color 3</button>
+        <div id="dropdownID8" class="dropdown-content1">
+            <a onmousedown="dropdownButtonPressed(8, 0)">Red</a>
+            <a onmousedown="dropdownButtonPressed(8, 1)">Green</a>
+            <a onmousedown="dropdownButtonPressed(8, 2)">Blue</a>
+            <a onmousedown="dropdownButtonPressed(8, 3)">White</a>
+            <a onmousedown="dropdownButtonPressed(8, 4)">Yellow</a>
+            <a onmousedown="dropdownButtonPressed(8, 5)">Cyan</a>
+            <a onmousedown="dropdownButtonPressed(8, 6)">Magenta</a>
+            <a onmousedown="dropdownButtonPressed(8, 7)">Purple</a>
+            <a onmousedown="dropdownButtonPressed(8, 8)">Orange</a>
+            <a onmousedown="dropdownButtonPressed(8, 9)">Pink</a>
+            <a onmousedown="dropdownButtonPressed(8, 10)">Black</a>
+        </div>
+    </div>
+    <br><br><br><br><br>
+
+    <!-- Brightness - Slider with text -->
+    <div><span id="slider4ValueText" class="sliderUGLWBrtnsText">%SLIDERTEXT4%</span>
+        <br><br><br>
+        <input type="range" onchange="updateSlider(this)" id="slider4" min="0" max="255" value="%SLIDERVALUE4%" step="1"
+            class="sliderUGLW">
+    </div>
+    <br><br><br><br>
+
+    <!-- Speed - Slider with text -->
+    <div><span id="slider5ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT5%</span>
+        <br><br><br>
+        <input type="range" onchange="updateSlider(this)" id="slider5" min="0" max="65000" value="%SLIDERVALUE5%"
+            step="1" class="sliderUGLW">
+    </div>
+    <br><br>
+
+    <!-- Speed - Input box -->
     <form action="">
         <input type="text" onchange="updateSlider(this)" id="uglw_speed">
     </form>
-    </p>
+    <br><br><br><br>
+
+    <!-- Fadesize - Slider with text -->
+    <div><span id="slider11ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT11%</span>
+        <br><br><br>
+        <input type="range" onchange="updateSlider(this)" id="slider11" min="1" max="4" value="%SLIDERVALUE11%" step="1"
+            class="sliderUGLW">
+    </div>
+    <br><br><br><br>
+
+    <!-- Transition Coefficient -->
+    <div><span id="slider10ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT10%</span>
+        <br><br>
+        <form action="">
+            <input type="text" onchange="updateSlider(this)" id="transcoef">
+        </form>
+    </div>
+    <br><br>
     <hr>
 
+
+    <!--  -->
+    <!-- Fade Controls -->
+    <!--  -->
     <!-- Fade Button -->
     %BUTTONPLACEHOLDER0%
     <br><br>
     <hr>
 
-    <!-- Fade Speed Sliders -->
-    <p><span id="slider2ValueText" class="sliderFadeSpeedTextStar">%SLIDERTEXT2%</span></p>
-    <p><input type="range" onchange="updateSlider(this)" id="slider2" min="1" max="3" value="%SLIDERVALUE2%" step="1"
-            class="sliderFadeSpeed"></p>
-    <p><span id="slider3ValueText" class="sliderFadeSpeedTextTFL">%SLIDERTEXT3%</span></p>
-    <p><input type="range" onchange="updateSlider(this)" id="slider3" min="1" max="3" value="%SLIDERVALUE3%" step="1"
-            class="sliderFadeSpeed"></p>
+    <!-- Star Fade Speed - Slider with text -->
+    <br><br>
+    <div><span id="slider2ValueText" class="sliderFadeSpeedTextStar">%SLIDERTEXT2%</span>
+        <br><br><br><br>
+        <input type="range" onchange="updateSlider(this)" id="slider2" min="1" max="3" value="%SLIDERVALUE2%" step="1"
+            class="sliderFadeSpeed">
+    </div>
+    <br><br><br>
+
+    <!-- TFL Fade Speed - Slider with text -->
+    <div><span id="slider3ValueText" class="sliderFadeSpeedTextTFL">%SLIDERTEXT3%</span>
+        <br><br><br><br>
+        <input type="range" onchange="updateSlider(this)" id="slider3" min="1" max="3" value="%SLIDERVALUE3%" step="1"
+            class="sliderFadeSpeed">
+    </div>
+    <br><br>
     <hr>
 
-    <!-- MREST Button -->
+
+    <!--  -->
+    <!-- Restriction Buttons -->
+    <!--  -->
+    <!-- MREST Star -->
     %BUTTONPLACEHOLDER1%
+    <!-- MREST Underglow -->
     %BUTTONPLACEHOLDER2%
+    <!-- TFLREST Underglow -->
     %BUTTONPLACEHOLDER3%
     <br><br>
     <hr>
 
-    <!-- Battery Management -->
+
+    <!--  -->
+    <!-- Battery Management Controls -->
+    <!--  -->
     <br><br>
+    <!-- Current Battery Voltage text-->
     <span id="infoText3" class="infoText3">%INFOTEXT3%</span>
-    <p><span id="slider6ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT6%</span></p>
-    <p><input type="range" onchange="updateSlider(this)" id="slider6" min="11.0" max="13.0" value="%SLIDERVALUE6%"
-            step="0.1" class="sliderUGLW"></p>
-    <p><span id="slider7ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT7%</span></p>
-    <p>
-    <form action="">
-        <input type="text" onchange="updateSlider(this)" id="batvoltoffset">
-    </form>
-    </p>
+    <br><br><br><br>
+
+    <!-- Battery threshold - Slider with text-->
+    <div><span id="slider6ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT6%</span>
+        <br><br><br><br>
+        <input type="range" onchange="updateSlider(this)" id="slider6" min="11.0" max="13.0" value="%SLIDERVALUE6%"
+            step="0.1" class="sliderUGLW">
+    </div>
+    <br><br><br>
+
+    <!-- Battery Voltage Calibration Offset - text with input box -->
+    <div><span id="slider7ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT7%</span>
+        <br><br>
+        <form action="">
+            <input type="text" onchange="updateSlider(this)" id="batvoltoffset">
+        </form>
+    </div>
+    <br><br><br>
+
+    <!-- Battery Voltage Motor Offset - text with input box -->
+    <div><span id="slider9ValueText" class="sliderUGLWSpeedText">%SLIDERTEXT9%</span>
+        <br><br>
+        <form action="">
+            <input type="text" onchange="updateSlider(this)" id="batvoltoffsetmotor">
+        </form>
+    </div>
+    <br><br>
     <hr>
 
-    <!-- Infos -->
-    <p>
+
+    <!--  -->
+    <!-- Footer Infos -->
+    <!--  -->
+    <div>
+        <br>
+        <!-- WiFi-RSSI - text -->
         <span id="infoText1" class="infoText1">%INFOTEXT1%</span>
+        <!-- Version - text -->
         <span id="infoText2" class="infoText2">%INFOTEXT2%</span>
-    </p>
+        <br><br>
+    </div>
     <hr>
+
+    
+    <!--  -->
+    <!-- Author -->
+    <!--  -->
+    <br>
+    <span id="authorText1" class="authorText">created by Sploit | &copy; 2022 </span>
 
     <script>
         //*** Dropdown Functions ***
@@ -543,7 +704,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         function showDropdown(element) {
             var key = -1;
             if (element.id == "dropdownID0") key = 0;
-            else if (element.id == "dropdownID1") key = 1;
+            else if (element.id == "dropdownID1" || element.id == "dropdownID7" || element.id == "dropdownID8") key = 1;
             document.getElementById(element.id).classList.toggle("show" + key);
         }
 
@@ -635,26 +796,26 @@ const char index_html[] PROGMEM = R"rawliteral(
         function slider0UpdateText() {
             switch (document.getElementById("slider0").value) {
                 case "1":
-                    document.getElementById("slider0ValueText").innerHTML = "Star - Automatik";
+                    document.getElementById("slider0ValueText").innerHTML = "Star - Automatic";
                     break;
                 case "2":
-                    document.getElementById("slider0ValueText").innerHTML = "Star - An";
+                    document.getElementById("slider0ValueText").innerHTML = "Star - On";
                     break;
                 case "3":
-                    document.getElementById("slider0ValueText").innerHTML = "Star - Aus";
+                    document.getElementById("slider0ValueText").innerHTML = "Star - Off";
                     break;
             }
         }
         function slider1UpdateText() {
             switch (document.getElementById("slider1").value) {
                 case "1":
-                    document.getElementById("slider1ValueText").innerHTML = "TFL - Automatik";
+                    document.getElementById("slider1ValueText").innerHTML = "TFL - Automatic";
                     break;
                 case "2":
-                    document.getElementById("slider1ValueText").innerHTML = "TFL - An";
+                    document.getElementById("slider1ValueText").innerHTML = "TFL - On";
                     break;
                 case "3":
-                    document.getElementById("slider1ValueText").innerHTML = "TFL - Aus";
+                    document.getElementById("slider1ValueText").innerHTML = "TFL - Off";
                     break;
             }
         }
@@ -691,7 +852,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             document.getElementById("slider5ValueText").innerHTML = "Speed - " + document.getElementById("slider5").value;
         }
         function slider6UpdateText() {
-            document.getElementById("slider6ValueText").innerHTML = "Battery-Voltage Threshold - " + document.getElementById("slider6").value + " Volt";
+            document.getElementById("slider6ValueText").innerHTML = "Threshold - " + document.getElementById("slider6").value + " Volt";
         }
         function slider7UpdateText() {
             var xhttp = new XMLHttpRequest();
@@ -712,6 +873,42 @@ const char index_html[] PROGMEM = R"rawliteral(
             };
             xhttp.open("GET", "/favoriteUGLWMode", true);
             xhttp.send();
+        }
+        function slider9UpdateText() {
+            var xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function () {
+                if (this.readyState == 4 && this.status == 200) {
+                    document.getElementById("slider9ValueText").innerHTML = this.responseText;
+                }
+            };
+            xhttp.open("GET", "/batVoltOffsetMotor", true);
+            xhttp.send();
+        }
+        function slider10UpdateText() {
+            var xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function () {
+                if (this.readyState == 4 && this.status == 200) {
+                    document.getElementById("slider10ValueText").innerHTML = this.responseText;
+                }
+            };
+            xhttp.open("GET", "/transCoef", true);
+            xhttp.send();
+        }
+        function slider11UpdateText() {
+            switch (document.getElementById("slider11").value) {
+                case "1":
+                    document.getElementById("slider11ValueText").innerHTML = "Fadesize - Small";
+                    break;
+                case "2":
+                    document.getElementById("slider11ValueText").innerHTML = "Fadesize - Medium";
+                    break;
+                case "3":
+                    document.getElementById("slider11ValueText").innerHTML = "Fadesize - Large";
+                    break;
+                case "4":
+                    document.getElementById("slider11ValueText").innerHTML = "Fadesize - XLarge";
+                    break;
+            }
         }
         function starStateUpdateText() {
             var xhttp = new XMLHttpRequest();
@@ -753,6 +950,16 @@ const char index_html[] PROGMEM = R"rawliteral(
             xhttp.open("GET", "/infoText3", true);
             xhttp.send();
         }
+        function uglwSelModeUpdateText() {
+            var xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange = function () {
+                if (this.readyState == 4 && this.status == 200) {
+                    document.getElementById("uglwSelMode").innerHTML = this.responseText;
+                }
+            };
+            xhttp.open("GET", "/uglwSelMode", true);
+            xhttp.send();
+        }
 
         //*** Interval Functions ***
 
@@ -769,6 +976,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             syncSliders("slider4");
             syncSliders("slider5");
             syncSliders("slider6");
+            syncSliders("slider11");
         }, 2000);
         setInterval(function () {
             slider0UpdateText();
@@ -780,8 +988,12 @@ const char index_html[] PROGMEM = R"rawliteral(
             slider6UpdateText();
             slider7UpdateText();
             slider8UpdateText();
+            slider9UpdateText();
+            slider10UpdateText();
+            slider11UpdateText();
             starStateUpdateText();
             tflStateUpdateText();
+            uglwSelModeUpdateText();
         }, 250);
         setInterval(function () {
             infoText1UpdateText();

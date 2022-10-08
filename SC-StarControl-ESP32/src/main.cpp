@@ -66,6 +66,7 @@
 #include <ESPAsyncWebServer.h>
 #include "htmlsite.h"
 #include "esp_adc_cal.h"
+#include <ESPmDNS.h>
 
 //***** DEFINES *****
 // Version
@@ -434,24 +435,24 @@ void setup()
 {
   // Initialisation
   Serial.begin(115200);
-  canSerial.begin(38400);
-  ledSerial.begin(115200);
-  canSerial.setTimeout(3);
-  ledSerial.setTimeout(3);
-  while (!Serial || !canSerial || !ledSerial)
+  while (!Serial)
     ;
-  ledSerial.print("status!host-wasborn$");
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
 
   // WiFi
-  // WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  // WiFi.mode(WIFI_MODE_AP);
-  // WiFi.softAP(APSSID, APPSK);
-  // WiFi.softAPdisconnect();
   WiFi.onEvent(wifi_eventHandler);
   wifi_startAP();
+
+  // UART Interfaces
+  canSerial.begin(38400);
+  ledSerial.begin(115200);
+  canSerial.setTimeout(3);
+  ledSerial.setTimeout(3);
+  while (!canSerial || !ledSerial)
+    ;
+  ledSerial.print("status!host-wasborn$");
 
   // Get EEPROM memory
   EEPROM.begin(56);
@@ -1267,7 +1268,6 @@ void eeprom_initLastState()
   debugln("\n[EEPROM] Starting data extratction!");
 
   // Betriebsmodus State
-  EEPROM.write(betriebsmodusAdress, 1); // TODO
   int bmcontent = int(EEPROM.read(betriebsmodusAdress));
 
   debugln("[EEPROM] Star Modus: " + String(bmcontent));
@@ -1318,7 +1318,6 @@ void eeprom_initLastState()
   }
 
   // TFL Mode State
-  EEPROM.write(tflModeAdress, 1);                       // TODO
   int tflModeContent = int(EEPROM.read(tflModeAdress)); // read EEPROM
 
   debugln("[EEPROM] TFL Modus: " + String(tflModeContent));
@@ -1369,10 +1368,9 @@ void eeprom_initLastState()
   }
 
   // Fade Modus State
-  EEPROM.write(fademodusAdress, 1);                    // TODO
   int fadeContent = int(EEPROM.read(fademodusAdress)); // read EEPROM
 
-  debugln("[EEPROM] Fade Modus: " + String(starContent));
+  debugln("[EEPROM] Fade Modus: " + String(fadeContent));
 
   if (fadeContent == 1)
   {
@@ -1495,9 +1493,9 @@ void eeprom_initLastState()
 
   // Prepare Button Array for Webserver
   if (starMotorRestriction)
-    buttonStates[1] = 1;
+    buttonStates[2] = 1;
   else
-    buttonStates[1] = 0;
+    buttonStates[2] = 0;
 
   // API Override Lights
   int apiOverrideContent = int(EEPROM.read(apiOverrideOffAdress)); // read EEPROM
@@ -1613,8 +1611,6 @@ void eeprom_initLastState()
   sliderValues[4] = led_brtns;
 
   // LEDs Speed
-  writeSpeedEEPROM(100, false); // TODO
-  writeSpeedEEPROM(100, true);  // TODO
   unsigned int speedContent = readSpeedEEPROM(false);
 
   debugln("[EEPROM] LEDs - Speed: " + String(speedContent));
@@ -1693,7 +1689,6 @@ void eeprom_initLastState()
   sliderValuesFloat[1] = batVoltOffset;
 
   // Favorite UGLW Mode
-  EEPROM.write(favoriteModeAdress, 12); // TODO
   int favMode = EEPROM.read(favoriteModeAdress);
 
   debugln("[EEPROM] Favorite UGLW Mode: " + String(favMode));
@@ -2117,15 +2112,30 @@ String processor(const String &var)
   }
   else if (var == "INFOTEXT1")
   {
-    return "WiFi-RSSI: " + String(WiFi.RSSI());
+    String retval = "";
+    if (connected_clients[2])
+      retval += "CC";
+    else
+      retval += "--";
+    retval += " | ";
+    if (connected_clients[0])
+      retval += "SE";
+    else
+      retval += "--";
+    retval += " | ";
+    if (connected_clients[1])
+      retval += "SG";
+    else
+      retval += "--";
+    return retval;
   }
   else if (var == "INFOTEXT2")
   {
-    return "Version: " + String(VERSION);
+    return "Version - " + String(VERSION);
   }
   else if (var == "INFOTEXT3")
   {
-    return "Battery-Voltage: " + String(batteryVoltage) + " Volt";
+    return "Battery-Voltage - " + String(batteryVoltage) + " Volt";
   }
   else if (var == "SLIDERTEXT6")
   {
@@ -2143,17 +2153,17 @@ String processor(const String &var)
   }
   else if (var == "SLIDERTEXT8")
   {
-    String retval = "Favorite Mode: " + String(favoriteMode);
+    String retval = "Favorite Mode - " + String(favoriteMode);
     return retval;
   }
   else if (var == "SLIDERTEXT9")
   {
-    String retval = "Motor Offset: " + String(sliderValuesFloat[3]) + " Volt";
+    String retval = "Motor Offset - " + String(sliderValuesFloat[3]) + " Volt";
     return retval;
   }
   else if (var == "SLIDERTEXT10")
   {
-    String retval = "Transition Coefficient: " + String(sliderValuesFloat[2]);
+    String retval = "Transition Coefficient - " + String(sliderValuesFloat[2]);
     return retval;
   }
   else if (var == "SLIDERTEXT11")
@@ -2183,7 +2193,7 @@ String processor(const String &var)
   }
   else if (var == "UGLWSELMODETEXT")
   {
-    return "Selected Mode: " + uglwSelectedModeRqst();
+    return "Selected Mode - " + uglwSelectedModeRqst();
   }
 
   return String();
@@ -2470,37 +2480,51 @@ void assignServerHandlers()
 
   server.on("/infoText1", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "WiFi-RSSI: " + String(WiFi.RSSI());
+              String retval = "";
+              if (connected_clients[2])
+                retval += "CC";
+              else
+                retval += "--";
+              retval += " | ";
+              if (connected_clients[0])
+                retval += "SE";
+              else
+                retval += "--";
+              retval += " | ";
+              if (connected_clients[1])
+                retval += "SG";
+              else
+                retval += "--";
               request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/infoText3", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "Battery-Voltage: " + String(batteryVoltage) + " Volt";
+              String retval = "Battery-Voltage - " + String(batteryVoltage) + " Volt";
               request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/batVoltOffset", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "Calibration Offset: " + String(batVoltOffset) + " Volt";
+              String retval = "Calibration Offset - " + String(batVoltOffset) + " Volt";
               request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/favoriteUGLWMode", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "Favorite Mode: " + String(favoriteMode);
+              String retval = "Favorite Mode - " + String(favoriteMode);
               request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/batVoltOffsetMotor", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "Motor Offset: " + String(motorVoltOffset) + " Volt";
+              String retval = "Motor Offset - " + String(motorVoltOffset) + " Volt";
               request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/transCoef", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "Transition Coefficient: " + String(transitionCoefficient);
+              String retval = "Transition Coefficient - " + String(transitionCoefficient);
               request->send_P(200, "text/plain", retval.c_str()); });
 
   server.on("/uglwSelMode", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              String retval = "Selected Mode: " + uglwSelectedModeRqst();
+              String retval = "Selected Mode - " + uglwSelectedModeRqst();
               request->send_P(200, "text/plain", retval.c_str()); });
 }
 
@@ -2828,15 +2852,14 @@ void interpretButton(int id)
       debugln("[HTTP] Fade-Mode ON");
       fadeMode = true;
       fadeReset();
-      EEPROM.write(fademodusAdress, 1);
     }
     else
     {
       debugln("[HTTP] Fade-Mode OFF");
       fadeMode = false;
       fadeReset();
-      EEPROM.write(fademodusAdress, 0);
     }
+    EEPROM.writeBool(fademodusAdress, fadeMode);
     EEPROM.commit();
   }
   if (id == 2)
@@ -3673,25 +3696,22 @@ uint8_t CAN_checkMessages()
 // WiFi Handlers
 void wifi_startAP()
 {
-  // WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  // WiFi.mode(WIFI_MODE_AP);
-  // String hostname = "starhost-" + String(random(100));
-  // WiFi.setHostname(hostname.c_str());
-  // WiFi.softAP(APSSID, APPSK);
-
-  // // IP
-  // debug("\n[WiFi] AP Host-IP: ");
-  // debugln(WiFi.softAPIP());
-
+  // WiFi config & AP start
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  WiFi.mode(WIFI_MODE_STA);
+  WiFi.mode(WIFI_MODE_AP);
   String hostname = "starhost-" + String(random(100));
   WiFi.setHostname(hostname.c_str());
-  WiFi.begin("SploitOP", "sploitop");
+  WiFi.softAP(APSSID, APPSK);
 
   // IP
-  debug("\n[WiFi] STA IP: ");
-  debugln(WiFi.localIP());
+  debug("\n[WiFi] AP Host-IP: ");
+  debugln(WiFi.softAPIP());
+
+  // mDNS
+  if (MDNS.begin("starhost"))
+    debugln("[mDNS] Service started!");
+  else
+    debugln("[mDNS] Starting service failed!");
 
   // OTA
   ArduinoOTA.setHostname("starHost");
