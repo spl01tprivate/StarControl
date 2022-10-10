@@ -22,9 +22,11 @@
 */
 
 //***** INCLUDES *****
-#include "Arduino.h"
+#include <Arduino.h>
+#include <ArduinoOTA.h>
 #include <EEPROM.h>
 #include <WS2812FX.h>
+#include <ESP8266WiFi.h>
 
 //***** DEFINES *****
 // Version
@@ -33,6 +35,10 @@
 // Debug
 #define debug(x) Serial.print(x)
 #define debugln(x) Serial.println(x)
+
+// WiFi
+#define APSSID "StarUnderglow"
+#define APPSK "starnetwork"
 
 // IOs
 #define LED_PIN 5   // D1
@@ -173,6 +179,7 @@ void reconnect();
 bool checkSerial();
 void initSerial();
 void serialEmergencyTOWD();
+void wifi_startAP();
 
 //***** SETUP *****
 void setup()
@@ -189,6 +196,9 @@ void setup()
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, HIGH); // Activate "power" to ws2812 strips
+
+  // WiFi
+  wifi_startAP();
 
   // Get EEPROM memory
   eeprom_initLastState();
@@ -225,6 +235,7 @@ void handlers()
 {
   leds.service();
   serialEmergencyTOWD();
+  ArduinoOTA.handle();
   yield();
 }
 
@@ -1173,4 +1184,21 @@ void serialEmergencyTOWD()
     debugln("\n[Timeout-WD] Emergency Serial Client silent since 6.5 seconds...");
   else if (millis() == (lastAliveMsg + 7000))
     debugln("\n[Timeout-WD] Emergency Serial Client silent since 7 seconds...");
+}
+
+// WiFi
+void wifi_startAP()
+{
+  WiFi.setOutputPower(20.5);
+  WiFi.mode(WIFI_AP);
+  if (WiFi.softAP(APSSID, APPSK))
+  {
+    debug("\n[WiFi] AP Host-IP: ");
+    debugln(WiFi.softAPIP());
+  }
+
+  // OTA
+  ArduinoOTA.setHostname("starUnderglow");
+  ArduinoOTA.begin();
+  debugln("\n[OTA] Service started!");
 }

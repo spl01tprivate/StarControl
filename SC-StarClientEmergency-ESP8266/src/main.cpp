@@ -25,7 +25,6 @@
 
 //***** INCLUDES *****
 #include "Arduino.h"
-#include <EEPROM.h>
 #include <ESP8266WiFi.h>
 #include <ArduinoOTA.h>
 #include "Adafruit_NeoPixel.h"
@@ -53,10 +52,7 @@
 #define APSSID "StarEmergency"
 #define APPSK "starnetwork"
 
-// EEPROM
-#define apiOverrideOffAdress 0
-
-// Inputs
+// Inputs^^
 #define mode1Pin 5   // D1
 #define mode2Pin 4   // D2
 #define mode3Pin 14  // D5
@@ -98,8 +94,6 @@ unsigned long ledBlinkLastBlink = 0;
 // Reset detection
 unsigned int lastModes[4] = { 0, 0, 0, 0 };
 
-// CAN
-
 // Client timeout
 bool connected_clients[3] = { false, false, false };  // 0 - Host | 1 - Shift | 2 - CANChild
 unsigned const int aveMsgTimeout = 10000;
@@ -138,8 +132,6 @@ bool string_find(char *, char *);
 //***** SETUP *****
 void setup() {
   Serial.begin(38400);
-
-  EEPROM.begin(1);
 
   debugln("\n[StarClient-Emergency] Starting programm ~ by spl01t*#7");
   debugln("[StarClient-Emergency] You are running version " + String(VERSION) + "!");

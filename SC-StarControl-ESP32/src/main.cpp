@@ -304,9 +304,12 @@ bool string_find(char *, char *);
 void setup()
 {
   // Initialisation
-  Serial.begin(115200);
-  while (!Serial)
-    ;
+  if (DEBUG || ISRDEBUG)
+  {
+    Serial.begin(115200);
+    while (!Serial)
+      ;
+  }
 
   debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
   debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
@@ -323,7 +326,6 @@ void setup()
   ledSerial.setTimeout(3);
   while (!canSerial || !ledSerial)
     ;
-  // ledSerial.print("status!host-wasborn$");
 
   // Get EEPROM memory
   EEPROM.begin(56);
@@ -3361,6 +3363,8 @@ void CAN_aliveMessage()
   {
     con_clients_emegBefore = true;
     connected_clients[0] = false;
+    EEPROM.write(apiOverrideOffAdress, 1);
+    EEPROM.commit();
     setEmergencyMode();
     debugln("\n[Timeout-WD] StarClient Emergency timed out!");
   }
@@ -3648,7 +3652,7 @@ void serialLEDHandler()
     String payload = ledSerial.readStringUntil('$');
     static unsigned long timer_initConnect = 0;
 
-    // debugln("[Serial] Message arrived - Topic: '" + topic + "' - Payload: '" + payload + "'\n");
+    // debugln("[UGLW] Message arrived - Topic: '" + topic + "' - Payload: '" + payload + "'\n");
 
     if (String(topic) == "status")
     {
@@ -3661,7 +3665,7 @@ void serialLEDHandler()
         else
           lastSerialMsg = String(apiOvrOff_topic) + "!0$";
         serialClientInitConnection = true;
-        debugln("\n[Serial] Initializing client communication!");
+        debugln("\n[UGLW] Initializing client communication!");
         uglwStarted = true;
         ledSerial.print(lastSerialMsg);
         uglwTFLRestrictionHandler();
@@ -3674,7 +3678,7 @@ void serialLEDHandler()
       else if (String(payload) == "cnctd")
       {
         serialClientConnection = true;
-        debugln("\n[Serial] Client successfully connected!");
+        debugln("\n[UGLW] Client successfully connected!");
       }
     }
   }
