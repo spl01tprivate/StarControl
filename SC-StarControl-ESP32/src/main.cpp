@@ -323,14 +323,14 @@ void setup()
   ledSerial.setTimeout(3);
   while (!canSerial || !ledSerial)
     ;
-  ledSerial.print("status!host-wasborn$");
+  // ledSerial.print("status!host-wasborn$");
 
   // Get EEPROM memory
   EEPROM.begin(56);
   eeprom_initLastState();
 
   // IOs
-  pinMode(pin_tfl, INPUT);             // interrupt
+  pinMode(pin_tfl, INPUT); // interrupt
   attachInterrupt(digitalPinToInterrupt(pin_tfl), tflISR, CHANGE);
   pinMode(pin_kl15, INPUT);            // only digitalRead
   pinMode(pin_kl50, INPUT);            // only digitalRead
@@ -3655,24 +3655,21 @@ void serialLEDHandler()
       if (String(payload) == "cnt-wtg" && ((millis() > timer_initConnect + 3000) || !serialClientInitConnection))
       {
         timer_initConnect = millis();
-        ledSerial.print("status!host-alive$");
+        ledSerial.print("status!host-wasborn$");
         if (emergency)
           lastSerialMsg = String(apiOvrOff_topic) + "!1$";
         else
           lastSerialMsg = String(apiOvrOff_topic) + "!0$";
-        if (!serialClientInitConnection)
-        {
-          serialClientInitConnection = true;
-          debugln("\n[Serial] Initializing client communication!");
-          uglwStarted = true;
-          ledSerial.print(lastSerialMsg);
-          uglwTFLRestrictionHandler();
-          uglw_sendValue(6, transitionCoefficient);
-          if (uglwMotorBlock || uglwTFLRestActive)
-            uglw_sendValue(4, 1U, true);
-          else if (!uglwMotorBlock && !uglwTFLRestActive)
-            uglw_sendValue(4, 0U, true);
-        }
+        serialClientInitConnection = true;
+        debugln("\n[Serial] Initializing client communication!");
+        uglwStarted = true;
+        ledSerial.print(lastSerialMsg);
+        uglwTFLRestrictionHandler();
+        uglw_sendValue(6, transitionCoefficient);
+        if (uglwMotorBlock || uglwTFLRestActive)
+          uglw_sendValue(4, 1U, true);
+        else if (!uglwMotorBlock && !uglwTFLRestActive)
+          uglw_sendValue(4, 0U, true);
       }
       else if (String(payload) == "cnctd")
       {
