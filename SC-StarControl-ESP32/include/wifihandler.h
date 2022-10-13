@@ -6,6 +6,4 @@
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 
-
-
 #endif

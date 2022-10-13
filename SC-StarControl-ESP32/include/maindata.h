@@ -136,13 +136,4 @@
 #define CAN_tpc_apiovr 0x2
 #define CAN_tpc_reset 0x3
 
-// WS2812FX
-#define LED_COUNT 595
-
-// User Data
-struct userDataStruct
-{
-  bool lol = false;
-};
-
 #endif

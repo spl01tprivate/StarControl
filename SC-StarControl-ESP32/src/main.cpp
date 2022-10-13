@@ -64,7 +64,6 @@
 #include <wifihandler.h>
 
 // Libraries
-#include <AsyncTCP.h>
 #include <EEPROM.h>
 #include <esp_adc_cal.h>
 #include <ESPAsyncWebServer.h>
