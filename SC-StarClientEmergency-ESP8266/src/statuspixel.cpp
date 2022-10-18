@@ -11,7 +11,7 @@
 // *** Defines ***
 
 // *** Variables & Objects ***
-Adafruit_NeoPixel leds(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel leds(LED_COUNT, PIN_LED, NEO_GRB + NEO_KHZ800);
 
 // *** Prototypes ***
 void stapi_init();
@@ -30,7 +30,6 @@ void stapi_init()
     leds.clear();
 }
 
-// *** Functions ***
 /*!
    @brief   Start animation at boot of mcu.
    @return

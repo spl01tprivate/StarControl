@@ -29,8 +29,23 @@ unsigned long canChild_lastAveMsg = 0; // stores when last alive msg was receive
 char CAN_childMsg_alive[3] = {'C', 'A', '\0'};
 char CAN_childMsg_lives[3] = {'C', 'L', '\0'};
 
+// ACK buffer
+const uint8_t CAN_ackBuf_size = 5; // Size of ack buffer to store can messages
+int CAN_ackBuf_txID[CAN_ackBuf_size];
+byte CAN_ackBuf_dlc[CAN_ackBuf_size];
+byte CAN_ackBuf_payload[CAN_ackBuf_size][CAN_DLC];
+uint8_t CAN_ackBuf_index = 0;
+
+// ACK timings
+const uint16_t CAN_ack_msgTimeout = 1000;
+unsigned long CAN_ack_sentTime[CAN_ackBuf_size];
+
 // *** Prototypes ***
 String CAN_publisher(sct_md *, byte, byte);
+void CAN_ackBuf_remElement(int8_t);
+bool CAN_ackTimeout(sct_md *);
+bool CAN_ackMessage(sct_md *, int, byte, byte[]);
+bool CAN_queueAckMessage(unsigned long, byte, byte[]);
 void CAN_sendMessage(sct_md *, unsigned long, byte, byte[]);
 void CAN_aliveMessage(sct_md *);
 uint8_t CAN_checkMessages(sct_md *);
@@ -52,6 +67,192 @@ String CAN_publisher(sct_md *md, byte topic, byte payload)
 }
 
 /*!
+   @brief   Removes buffer element.
+   @return  
+   @note
+*/
+void CAN_ackBuf_remElement(int8_t data_match)
+{
+    // Resort buffer data if match was in between start and end of buffer elements
+    if (CAN_ackBuf_index == 2 && data_match == 0) // first of two elements get removed
+    {
+        CAN_ackBuf_txID[0] = CAN_ackBuf_txID[1];
+        CAN_ackBuf_dlc[0] = CAN_ackBuf_dlc[1];
+        for (int i = 0; i < CAN_ackBuf_dlc[1]; i++)
+        {
+            CAN_ackBuf_payload[0][i] = CAN_ackBuf_payload[1][i];
+        }
+        CAN_ack_sentTime[0] = CAN_ack_sentTime[1];
+        debugln("[CAN] Buffer: Removed first element of two!");
+    }
+    else if (CAN_ackBuf_index > 2 && data_match < (CAN_ackBuf_index - 1)) // element of deletion is not last element in buffer
+    {
+        CAN_ackBuf_txID[data_match] = CAN_ackBuf_txID[CAN_ackBuf_index - 1];
+        CAN_ackBuf_dlc[data_match] = CAN_ackBuf_dlc[CAN_ackBuf_index - 1];
+        for (int i = 0; i < CAN_ackBuf_dlc[1]; i++)
+        {
+            CAN_ackBuf_payload[data_match][i] = CAN_ackBuf_payload[CAN_ackBuf_index - 1][i];
+        }
+        CAN_ack_sentTime[data_match] = CAN_ack_sentTime[CAN_ackBuf_index - 1];
+        debugln("[CAN] Buffer: Removed element " + String(data_match) + " of " + String(CAN_ackBuf_index - 1) + " !");
+    }
+    else
+        debugln("[CAN] Buffer: Removed last element " + String(data_match) + " !");
+
+    // Decrement buffer index
+    CAN_ackBuf_index--;
+}
+
+/*!
+   @brief   Function to check whether ACK for sent messages timedout, to init another transmission.
+   @return  false: buffer is empty | true: buffer is not empty and / or message ack timed out
+   @note
+*/
+bool CAN_ackTimeout(sct_md *md)
+{
+    if (CAN_ackBuf_index == 0)
+        return false;
+
+    for (int i = 0; i < CAN_ackBuf_index; i++)
+    {
+        if (millis() > (CAN_ack_sentTime[i] + CAN_ack_msgTimeout))
+        {
+            debugln("[CAN] ACK timeout of message " + String(i) + ", resending message");
+            byte payload[CAN_ackBuf_dlc[i]];
+            for (int j = 0; j < CAN_ackBuf_dlc[i]; j++)
+            {
+                payload[j] = CAN_ackBuf_payload[i][j];
+            }
+            payload[0] = 0x1;
+            payload[1] = 0x1;
+            CAN_ackBuf_remElement(i);
+            CAN_sendMessage(md, CAN_ackBuf_txID[i], CAN_ackBuf_dlc[i], payload);
+            i--;
+        }
+    }
+
+    return true;
+}
+
+/*!
+   @brief   Function to check whether sent out messages were acknowledged.
+   @return  false: buffer is empty or message is not matching.
+   @note
+*/
+bool CAN_ackMessage(sct_md *md, int txID, byte dlc, byte payload[])
+{
+    if (CAN_ackBuf_index == 0)
+        return false;
+
+    int8_t data_match = -1;
+    for (int i = 0; i < CAN_ackBuf_index; i++)
+    {
+        bool data_match_txID = false;
+        bool data_match_dlc = false;
+        bool data_match_payload = false;
+
+        if (txID == CAN_ackBuf_txID[i])
+            data_match_txID = true;
+        else
+            continue;
+
+        if (dlc == CAN_ackBuf_dlc[i])
+            data_match_dlc = true;
+        else
+            continue;
+
+        for (int j = 0; j < dlc; j++)
+        {
+            if (payload[j] == CAN_ackBuf_payload[i][j])
+                data_match_payload = true;
+            else
+            {
+                data_match_payload = false;
+                break;
+            }
+        }
+
+        if (data_match_txID && data_match_dlc && data_match_payload)
+        {
+            data_match = i;
+            debugln("[CAN] ACK data match in buffer position " + String(data_match));
+            break;
+        }
+    }
+
+    if (data_match > -1)
+    {
+        CAN_ackBuf_remElement(data_match);
+    }
+    else
+    {
+        debugln("[CAN] No ACK data match was found!");
+        return false;
+    }
+
+    return true;
+}
+
+/*!
+   @brief   Function to queue CAN messages into buffer
+   @return  false: message not meant to be queued
+   @note
+*/
+bool CAN_queueAckMessage(unsigned long txID, byte dlc, byte payload[])
+{
+    // Filters
+    if (payload[2] == CAN_tpc_ping) // Ping requests don't require an acknowledgement
+        return false;
+
+    CAN_ackBuf_txID[CAN_ackBuf_index] = txID;
+    CAN_ackBuf_dlc[CAN_ackBuf_index] = dlc;
+
+    for (int i = 0; i < dlc; i++)
+    {
+        CAN_ackBuf_payload[CAN_ackBuf_index][i] = payload[i];
+    }
+
+    CAN_ackBuf_payload[CAN_ackBuf_index][0] = 0x0; // MCU: StarHost
+    CAN_ackBuf_payload[CAN_ackBuf_index][1] = 0x2; // Msg type: ACK
+
+    if (payload[2] == CAN_tpc_reset) // Reset CAN message creates two to get acknowledged messages (Host + ShiftGuidance)
+    {
+        CAN_ackBuf_index++;
+        CAN_ackBuf_txID[CAN_ackBuf_index] = txID;
+        CAN_ackBuf_dlc[CAN_ackBuf_index] = dlc;
+        for (int i = 0; i < dlc; i++)
+        {
+            CAN_ackBuf_payload[CAN_ackBuf_index][i] = payload[i];
+        }
+        CAN_ackBuf_payload[CAN_ackBuf_index][0] = 0x2; // MCU: StarShiftGuidance
+        CAN_ackBuf_payload[CAN_ackBuf_index][1] = 0x2; // Msg type: ACK
+    }
+
+    CAN_ack_sentTime[CAN_ackBuf_index] = millis(); // Store message transmission time
+
+    CAN_ackBuf_index++;
+
+    // Debug output buffer content
+    debug("[CAN] Buffer content:");
+    for (int i = 0; i < CAN_ackBuf_index; i++)
+    {
+        debugln("\n--- Pos | " + String(i) + " ---");
+        debugln("txID: " + String(CAN_ackBuf_txID[i]));
+        debugln("dlc : " + String(CAN_ackBuf_dlc[i]));
+        debug("data: ");
+        for (int j = 0; j < CAN_ackBuf_dlc[i]; j++)
+        {
+            if ((int)CAN_ackBuf_payload[i][j] < 16)
+                debug("0");
+            debugHEX(CAN_ackBuf_payload[i][j]);
+            debug(" ");
+        }
+    }
+
+    return true;
+}
+
+/*!
    @brief   Function to send CAN messages to the UART interface.
    @return
    @note
@@ -60,6 +261,8 @@ void CAN_sendMessage(sct_md *md, unsigned long txID, byte dlc, byte payload[])
 {
     if (md->connected_clients[2])
     {
+        CAN_queueAckMessage(txID, dlc, payload);
+
         Serial.print(txID, HEX);
         for (int i = 0; i < (int)dlc; i++)
         {
@@ -116,6 +319,8 @@ void CAN_aliveMessage(sct_md *md)
 */
 uint8_t CAN_checkMessages(sct_md *md)
 {
+    CAN_ackTimeout(md);
+
     if (!Serial.available())
         return 1;
 
@@ -176,6 +381,9 @@ uint8_t CAN_checkMessages(sct_md *md)
         debugHEX(payload[i]);
         debug(" ");
     }
+
+    // CAN message acknowledgment function
+    CAN_ackMessage(md, id, CAN_DLC, payload);
 
     // Message interpretation
     if (payload[2] == CAN_tpc_reset)

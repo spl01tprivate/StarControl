@@ -12,7 +12,7 @@
 #define VERSION 2.01
 
 // Debug
-#define DEBUG 1
+#define DEBUG 0
 
 #if DEBUG == 1
 #define debug(x) Serial.print(x)
@@ -30,14 +30,17 @@
 #define APSSID "StarEmergency"
 #define APPSK "starnetwork"
 
+// Outputs
+#define PIN_LBI 2   // D4
+
 // Inputs
-#define mode1Pin 5  // D1
-#define mode2Pin 4  // D2
-#define mode3Pin 14 // D5
-#define mode4Pin 12 // D6
+#define PIN_mode1 5  // D1
+#define PIN_mode2 4  // D2
+#define PIN_mode3 14 // D5
+#define PIN_mode4 12 // D6
 
 // WS2812FX
-#define LED_PIN 13 // D7
+#define PIN_LED 13 // D7
 #define LED_COUNT 1
 #define LED_BRTNS 48 // Maximum brtns of status pixel
 

@@ -3451,6 +3451,10 @@ uint8_t CAN_checkMessages()
   {
     if (payload[0] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
     {
+      // ACK
+      byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x3, 0x1, 0x0, 0x0, 0x0, 0x0};
+      CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
+
       ledSerial.print(String(reset_topic) + "!1$");
       canSerial.print("CR!");
       delay(250);
@@ -3468,6 +3472,10 @@ uint8_t CAN_checkMessages()
     {
       if (payload[3] == 0x1)
       {
+        // ACK
+        byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x2, 0x1, 0x0, 0x0, 0x0, 0x0};
+        CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
+
         selectedMode = 1;
         apiOverrideOff = true;
         EEPROM.write(apiOverrideOffAdress, 1);
@@ -3478,6 +3486,10 @@ uint8_t CAN_checkMessages()
       }
       else if (payload[3] == 0x0)
       {
+        // ACK
+        byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0};
+        CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
+
         selectedMode = 2;
         apiOverrideOff = false;
         EEPROM.write(apiOverrideOffAdress, 0);
@@ -3532,6 +3544,10 @@ uint8_t CAN_checkMessages()
   {
     if (payload[0] == 0x1 && payload[1] == 0x1)
     {
+      // ACK
+      byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x1, payload[3], 0x0, 0x0, 0x0, 0x0};
+      CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
+
       selectedMode = (unsigned int)payload[3];
       switch (selectedMode)
       {
@@ -3556,7 +3572,7 @@ uint8_t CAN_checkMessages()
         break;
 
       default:
-        debugln("\n[CAN] ERR Topic Sel. Mode: Unknown mode!");
+        debugln("\n[CAN] ERR Topic Sel. Mode: Unknown mode " + String(selectedMode) + " !");
         break;
       }
       if (!httpStrobe)
