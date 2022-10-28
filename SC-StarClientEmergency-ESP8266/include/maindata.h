@@ -46,6 +46,8 @@
 
 // CAN topics
 #define CAN_txID 0x321
+#define CAN_txID_obd 0x7DF
+#define CAN_rxID_obd 0x7E8
 #define CAN_DLC 8
 #define CAN_clientID 0x1
 
@@ -53,6 +55,9 @@
 #define CAN_tpc_selMode 0x1
 #define CAN_tpc_apiovr 0x2
 #define CAN_tpc_reset 0x3
+
+// UART
+#define UART_RXBUF_SIZE 50
 
 // User Data
 struct sct_md

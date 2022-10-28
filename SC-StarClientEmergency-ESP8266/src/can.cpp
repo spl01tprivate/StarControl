@@ -13,8 +13,8 @@
 // *** Variables & Objects ***
 // Client timeout
 unsigned const int aveMsgTimeout = 10000;
-const unsigned int aveMsgIntervall = 2500; // interval in which host sends can rqst to ping alive
-unsigned long myLastAveMsg = 0;            // timer to send can ping rqst
+const unsigned int CAN_pingCC_interval = 2500; // interval in which host sends can rqst to ping alive
+unsigned long CAN_pingCC_lastMsg = 0;          // timer to send can ping rqst
 
 // Star Emergency - API Emergency Mode
 unsigned long host_lastAveMsg = 0; // stores when last alive msg was received
@@ -28,6 +28,10 @@ unsigned long canChild_lastAveMsg = 0; // stores when last alive msg was receive
 // CAN
 char CAN_childMsg_alive[3] = {'C', 'A', '\0'};
 char CAN_childMsg_lives[3] = {'C', 'L', '\0'};
+
+// CAN Ping
+unsigned long CAN_ping_lastMsg = 0;
+const uint16_t CAN_ping_interval = 5000;
 
 // ACK buffer
 const uint8_t CAN_ackBuf_size = 5; // Size of ack buffer to store can messages
@@ -68,7 +72,7 @@ String CAN_publisher(sct_md *md, byte topic, byte payload)
 
 /*!
    @brief   Removes buffer element.
-   @return  
+   @return
    @note
 */
 void CAN_ackBuf_remElement(int8_t data_match)
@@ -282,12 +286,20 @@ void CAN_sendMessage(sct_md *md, unsigned long txID, byte dlc, byte payload[])
 */
 void CAN_aliveMessage(sct_md *md)
 {
-    if (((millis() > (myLastAveMsg + aveMsgIntervall)) || (myLastAveMsg == 0U)) && md->connected_clients[2])
+    // Ping CC
+    if (((millis() > (CAN_pingCC_lastMsg + CAN_pingCC_interval)) || (CAN_pingCC_lastMsg == 0U)) && md->connected_clients[2])
     {
-        myLastAveMsg = millis();
+        CAN_pingCC_lastMsg = millis();
+        Serial.print("CC!");
+    }
+
+    // Ping CanClients
+    if ((millis() > (CAN_ping_lastMsg + CAN_ping_interval) || (CAN_ping_lastMsg == 0U)) && md->connected_clients[2])
+    {
+        debugln("[PING] No ping rqst since " + String(CAN_ping_interval) + "ms. Sending own ping request!");
+        CAN_ping_lastMsg = millis();
         byte payload[CAN_DLC] = {CAN_clientID, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0};
         CAN_sendMessage(md, CAN_txID, CAN_DLC, payload); // Sending ping rqst to clients
-        Serial.print("CC!");
     }
 
     // Timeout StarEmergency
@@ -322,7 +334,7 @@ uint8_t CAN_checkMessages(sct_md *md)
     CAN_ackTimeout(md);
 
     if (!Serial.available())
-        return 1;
+        return 1; 
 
     String rxMsg = Serial.readStringUntil('!');
 
@@ -403,9 +415,26 @@ uint8_t CAN_checkMessages(sct_md *md)
     {
         if (payload[1] == 0x0) // Request
         {
-            debugln("\n[CAN] Message: Ping request");
+            debug("\n[CAN] Message: Ping request from ");
+            if (payload[0] == 0x0)
+            {
+                debug("StarHost!");
+                if (!md->connected_clients[0])
+                    debugln("[Client] StarHost connected!");
+                host_lastAveMsg = millis();
+                md->connected_clients[0] = true;
+            }
+            else if (payload[0] == 0x2)
+            {
+                debug("ShiftGuidance!");
+                if (!md->connected_clients[1])
+                    debugln("[Client] ShiftGuidance connected!");
+                shift_lastAveMsg = millis();
+                md->connected_clients[1] = true;
+            }
             byte txPL[CAN_DLC] = {CAN_clientID, 0x1, CAN_tpc_ping, 0x1, 0x0, 0x0, 0x0, 0x0};
             CAN_sendMessage(md, CAN_txID, CAN_DLC, txPL);
+            CAN_ping_lastMsg = millis();
         }
         else if (payload[1] == 0x1) // Answer
         {
@@ -442,9 +471,7 @@ uint8_t CAN_checkMessages(sct_md *md)
             debugln("[CAN] ERR Topic Ping: Unknown message!");
     }
     else
-    {
         debugln("\n[CAN] ERR Not a subscribed topic!");
-    }
 
     return 0;
 }

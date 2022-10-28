@@ -133,12 +133,12 @@ bool tflISRriseStartBool = true;
 
 void IRAM_ATTR tflISR()
 {
-  portENTER_CRITICAL(&ISRSync);
-  if (digitalRead(pin_tfl))
-    tflISRrisingState = 1;
-  else
-    tflISRfallingState = 1;
-  portEXIT_CRITICAL(&ISRSync);
+    portENTER_CRITICAL(&ISRSync);
+    if (digitalRead(pin_tfl))
+        tflISRrisingState = 1;
+    else
+        tflISRfallingState = 1;
+    portEXIT_CRITICAL(&ISRSync);
 }
 
 // Hardware Serials
@@ -159,8 +159,12 @@ bool apiOverrideOff;                               // Stores whether API call wa
 bool emergency = true;
 int outputParamsBefore[6]; // Stores previous states of analog / digital outputs of relais and leds
 unsigned const int aveMsgTimeout = 10000;
-const unsigned int aveMsgIntervall = 2500; // interval in which host sends can rqst to ping alive
-unsigned long myLastAveMsg = 0;            // timer to send can ping rqst
+const unsigned int CAN_pingCC_interval = 2500; // interval in which host sends can rqst to ping alive
+unsigned long CAN_pingCC_lastMsg = 0;          // timer to send can ping rqst
+
+// CAN Ping
+unsigned long CAN_ping_lastMsg = 0;      // Last ping request to CAN network
+const uint16_t CAN_ping_interval = 2500; // Interval to send ping request
 
 // Star Emergency - API Emergency Mode
 unsigned long emeg_lastAveMsg = 0; // stores when last alive msg was received
@@ -302,1932 +306,1932 @@ bool string_find(char *, char *);
 //***** SETUP *****
 void setup()
 {
-  // Initialisation
-  if (DEBUG || ISRDEBUG)
-  {
-    Serial.begin(115200);
-    while (!Serial)
-      ;
-  }
+    // Initialisation
+    if (DEBUG || ISRDEBUG)
+    {
+        Serial.begin(115200);
+        while (!Serial)
+            ;
+    }
 
-  debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
-  debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
+    debugln("\n[StarControl-Host] Starting programm ~ by spl01t*#7");
+    debugln("[StarControl-Host] You are running version " + String(VERSION) + "!");
 
-  // WiFi
-  WiFi.onEvent(wifi_eventHandler);
-  wifi_startAP();
-  server_init();
+    // WiFi
+    WiFi.onEvent(wifi_eventHandler);
+    wifi_startAP();
+    server_init();
 
-  // UART Interfaces
-  canSerial.begin(38400);
-  ledSerial.begin(115200);
-  canSerial.setTimeout(3);
-  ledSerial.setTimeout(3);
-  while (!canSerial || !ledSerial)
-    ;
+    // UART Interfaces
+    canSerial.begin(38400);
+    ledSerial.begin(115200);
+    canSerial.setTimeout(3);
+    ledSerial.setTimeout(3);
+    while (!canSerial || !ledSerial)
+        ;
 
-  // Get EEPROM memory
-  EEPROM.begin(56);
-  eeprom_initLastState();
+    // Get EEPROM memory
+    EEPROM.begin(56);
+    eeprom_initLastState();
 
-  // IOs
-  pinMode(pin_tfl, INPUT); // interrupt
-  attachInterrupt(digitalPinToInterrupt(pin_tfl), tflISR, CHANGE);
-  pinMode(pin_kl15, INPUT);            // only digitalRead
-  pinMode(pin_kl50, INPUT);            // only digitalRead
-  pinMode(pin_tflLeft, OUTPUT);        // pwm
-  pinMode(pin_tflRight, OUTPUT);       // pwm
-  pinMode(pin_star, OUTPUT);           // pwm
-  pinMode(pin_starRelais, OUTPUT);     // only digitalRead/-Write
-  pinMode(pin_tflLeftRelais, OUTPUT);  // only digitalRead/-Write
-  pinMode(pin_tflRightRelais, OUTPUT); // only digitalRead/-Write
-  pinMode(pin_batVolt, INPUT);         // adc input
+    // IOs
+    pinMode(pin_tfl, INPUT); // interrupt
+    attachInterrupt(digitalPinToInterrupt(pin_tfl), tflISR, CHANGE);
+    pinMode(pin_kl15, INPUT);            // only digitalRead
+    pinMode(pin_kl50, INPUT);            // only digitalRead
+    pinMode(pin_tflLeft, OUTPUT);        // pwm
+    pinMode(pin_tflRight, OUTPUT);       // pwm
+    pinMode(pin_star, OUTPUT);           // pwm
+    pinMode(pin_starRelais, OUTPUT);     // only digitalRead/-Write
+    pinMode(pin_tflLeftRelais, OUTPUT);  // only digitalRead/-Write
+    pinMode(pin_tflRightRelais, OUTPUT); // only digitalRead/-Write
+    pinMode(pin_batVolt, INPUT);         // adc input
 
-  // PWM Setup
-  for (int i = 0; i < 3; i++)
-  {
-    ledcSetup(i, 100, 10);
-  }
-  ledcAttachPin(pin_star, 0);
-  ledcAttachPin(pin_tflLeft, 1);
-  ledcAttachPin(pin_tflRight, 2);
-  ledcWrite(0, 0);                   // led star in beginning off
-  ledcWrite(1, 0);                   // tfl l in beginning off
-  ledcWrite(2, 0);                   // tfl r in beginning off
-  digitalWrite(pin_starRelais, LOW); // relais in beginnning off
-  digitalWrite(pin_tflLeftRelais, LOW);
-  digitalWrite(pin_tflRightRelais, LOW);
+    // PWM Setup
+    for (int i = 0; i < 3; i++)
+    {
+        ledcSetup(i, 100, 10);
+    }
+    ledcAttachPin(pin_star, 0);
+    ledcAttachPin(pin_tflLeft, 1);
+    ledcAttachPin(pin_tflRight, 2);
+    ledcWrite(0, 0);                   // led star in beginning off
+    ledcWrite(1, 0);                   // tfl l in beginning off
+    ledcWrite(2, 0);                   // tfl r in beginning off
+    digitalWrite(pin_starRelais, LOW); // relais in beginnning off
+    digitalWrite(pin_tflLeftRelais, LOW);
+    digitalWrite(pin_tflRightRelais, LOW);
 
-  // ADC
-  esp_adc_cal_characteristics_t adc_chars;
-  esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
-  vref = adc_chars.vref;
+    // ADC
+    esp_adc_cal_characteristics_t adc_chars;
+    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
+    vref = adc_chars.vref;
 
-  debugln("\n[StarControl-Host] Initialization completed...starting programm loop\n");
+    debugln("\n[StarControl-Host] Initialization completed...starting programm loop\n");
 }
 
 //***** LOOP *****
 void loop()
 {
-  do
-  {
-    readInputs();
+    do
+    {
+        readInputs();
 
-    interpretInputs();
+        interpretInputs();
 
-    writeOutput();
+        writeOutput();
 
-    serialLEDHandler();
+        serialLEDHandler();
 
-    uglwWriteOutput();
+        uglwWriteOutput();
 
-    CAN_aliveMessage();
+        CAN_aliveMessage();
 
-    CAN_checkMessages();
+        CAN_checkMessages();
 
-    startupHandler();
-  } while (!starStarted || !tflStarted || !uglwStarted);
+        startupHandler();
+    } while (!starStarted || !tflStarted || !uglwStarted);
 
-  handlers();
+    handlers();
 }
 
 //***** FUNCTIONS *****
 // Handler Functions
 void handlers()
 {
-  ArduinoOTA.handle();
-  yield();
+    ArduinoOTA.handle();
+    yield();
 }
 
 void startupHandler()
 {
-  if (emergency)
-  {
-    starStarted = true;
-    tflStarted = true;
-    uglwStarted = true;
-  }
-  if (uglwTFLRestActive && starMode && !starStarted)
-  {
-    starStarted = true;
-    debugln("[StartUp] TFL Restriction active - Star turned off!");
-  }
-  if (uglwTFLRestActive && tflMode && !tflStarted)
-  {
-    tflStarted = true;
-    debugln("[StartUp] TFL Restriction active - TFL turned off!");
-  }
-  if (starMode == 0 && starSoll == 0 && starStarted)
-  {
-    starStarted = true;
-    debugln("[Star] Turned off!");
-  }
-  if (tflMode == 0 && tflSoll == 0 && !tflStarted)
-  {
-    tflStarted = true;
-    debugln("[TFL] Turned off!");
-  }
+    if (emergency)
+    {
+        starStarted = true;
+        tflStarted = true;
+        uglwStarted = true;
+    }
+    if (uglwTFLRestActive && starMode && !starStarted)
+    {
+        starStarted = true;
+        debugln("[StartUp] TFL Restriction active - Star turned off!");
+    }
+    if (uglwTFLRestActive && tflMode && !tflStarted)
+    {
+        tflStarted = true;
+        debugln("[StartUp] TFL Restriction active - TFL turned off!");
+    }
+    if (starMode == 0 && starSoll == 0 && starStarted)
+    {
+        starStarted = true;
+        debugln("[Star] Turned off!");
+    }
+    if (tflMode == 0 && tflSoll == 0 && !tflStarted)
+    {
+        tflStarted = true;
+        debugln("[TFL] Turned off!");
+    }
 }
 
 // Input Signals
 void readInputs()
 {
-  kl15Bool = digitalRead(pin_kl15);
-  kl50Bool = digitalRead(pin_kl50);
+    kl15Bool = digitalRead(pin_kl15);
+    kl50Bool = digitalRead(pin_kl50);
 
-  do
-  {
-    batteryMonitoring();
-  } while (batteryVoltage == 0.0);
+    do
+    {
+        batteryMonitoring();
+    } while (batteryVoltage == 0.0);
 }
 
 void batteryMonitoring()
 {
-  if (millis() >= (lastADCVal + 30) || batteryVoltage == 0.0) // ca every second 1 measurement
-  {
-    lastADCVal = millis();
-    float anaVal = (float)analogRead(pin_batVolt) * 0.0002442;
-    float inputVoltage = anaVal * 3.3 * (1100 / vref);
-    float realVoltage = inputVoltage * ((resistor1 + resistor2) / resistor2);
-    batteryVoltages[batVoltMeasurements] = realVoltage + batVoltOffset;
-    batVoltMeasurements++;
-    /*debugln("Ana-Val: " + String(anaVal));
-    debugln("Input-Voltage: " + String(inputVoltage));
-    debugln("Real-Voltage: " + String(realVoltage));*/
-    if (batVoltMeasurements >= batVoltSamples)
+    if (millis() >= (lastADCVal + 30) || batteryVoltage == 0.0) // ca every second 1 measurement
     {
-      for (int i = 0; i < batVoltMeasurements; i++)
-      {
-        batteryVoltage += batteryVoltages[i];
-      }
-      batteryVoltage /= batVoltMeasurements; // Sum / batVoltSamples
-      // debugln("Battery Voltage: " + String(batteryVoltage));
-      batVoltMeasurements = 0;
+        lastADCVal = millis();
+        float anaVal = (float)analogRead(pin_batVolt) * 0.0002442;
+        float inputVoltage = anaVal * 3.3 * (1100 / vref);
+        float realVoltage = inputVoltage * ((resistor1 + resistor2) / resistor2);
+        batteryVoltages[batVoltMeasurements] = realVoltage + batVoltOffset;
+        batVoltMeasurements++;
+        /*debugln("Ana-Val: " + String(anaVal));
+        debugln("Input-Voltage: " + String(inputVoltage));
+        debugln("Real-Voltage: " + String(realVoltage));*/
+        if (batVoltMeasurements >= batVoltSamples)
+        {
+            for (int i = 0; i < batVoltMeasurements; i++)
+            {
+                batteryVoltage += batteryVoltages[i];
+            }
+            batteryVoltage /= batVoltMeasurements; // Sum / batVoltSamples
+            // debugln("Battery Voltage: " + String(batteryVoltage));
+            batVoltMeasurements = 0;
+        }
     }
-  }
 }
 
 void interpretInputs()
 {
-  if (kl50Bool && !motorRunning)
-  {
-    debugln("\n[IO] Detected motor start!\n");
-    motorRunning = true;
-    batVoltOffset += motorVoltOffset;
-  }
-
-  if (motorRunning && !kl15Bool && !kl50Bool)
-  {
-    debugln("\n[IO] Detected motor stop!\n");
-    motorRunning = false;
-    batVoltOffset -= motorVoltOffset;
-  }
-
-  do
-  {
-    if (selectedModeBef != 3)
-      tflISRInterpret(); // V1.4 - TFL ISR checking for input signal type
-    else
+    if (kl50Bool && !motorRunning)
     {
-      if (!checkedInputs)
-        checkedInputs = true;
-      if (!tflBool)
-        tflBool = true;
+        debugln("\n[IO] Detected motor start!\n");
+        motorRunning = true;
+        batVoltOffset += motorVoltOffset;
     }
-  } while (!checkedInputs);
 
-  if (batteryVoltage <= batteryThreshold && !batteryEmergency) // Battery-Management
-  {
-    batteryEmergency = true;
-    debugln("[BAT] Setting emergency mode, because voltage is " + String(batteryVoltage) + " Volt!");
-    setEmergencyMode();
-  }
-  else if (batteryVoltage > batteryThreshold && batteryEmergency)
-  {
-    batteryEmergency = false;
-    debugln("[BAT] Resetting emergency mode, because voltage is " + String(batteryVoltage) + " Volt!");
-    resetEmergencyMode();
-  }
+    if (motorRunning && !kl15Bool && !kl50Bool)
+    {
+        debugln("\n[IO] Detected motor stop!\n");
+        motorRunning = false;
+        batVoltOffset -= motorVoltOffset;
+    }
+
+    do
+    {
+        if (selectedModeBef != 3)
+            tflISRInterpret(); // V1.4 - TFL ISR checking for input signal type
+        else
+        {
+            if (!checkedInputs)
+                checkedInputs = true;
+            if (!tflBool)
+                tflBool = true;
+        }
+    } while (!checkedInputs);
+
+    if (batteryVoltage <= batteryThreshold && !batteryEmergency) // Battery-Management
+    {
+        batteryEmergency = true;
+        debugln("[BAT] Setting emergency mode, because voltage is " + String(batteryVoltage) + " Volt!");
+        setEmergencyMode();
+    }
+    else if (batteryVoltage > batteryThreshold && batteryEmergency)
+    {
+        batteryEmergency = false;
+        debugln("[BAT] Resetting emergency mode, because voltage is " + String(batteryVoltage) + " Volt!");
+        resetEmergencyMode();
+    }
 }
 
 // Star Functions
 void writeOutput()
 {
-  if (!emergency)
-  {
-    if (strobe || strobeShort)
+    if (!emergency)
     {
-      strobeFct();
-    }
-    else
-    {
-      // Stop Strobe and set old values
-      if (!strobe && strobeActive && !strobeShort)
-      {
-        strobeStop(true);
-      }
+        if (strobe || strobeShort)
+        {
+            strobeFct();
+        }
+        else
+        {
+            // Stop Strobe and set old values
+            if (!strobe && strobeActive && !strobeShort)
+            {
+                strobeStop(true);
+            }
 
-      if (starMode)
-        automaticMode();
-      else
-        manualMode();
+            if (starMode)
+                automaticMode();
+            else
+                manualMode();
 
-      tflOutput();
+            tflOutput();
+        }
     }
-  }
 }
 
 void automaticMode()
 {
-  if ((!motorRunning && tflBool) || (motorRunning && !starMotorRestriction) || selectedModeBef == 3)
-    starOn();
-  else
-    starOff();
+    if ((!motorRunning && tflBool) || (motorRunning && !starMotorRestriction) || selectedModeBef == 3)
+        starOn();
+    else
+        starOff();
 }
 
 void manualMode()
 {
-  if (starSoll)
-    starOn();
-  else
-    starOff();
+    if (starSoll)
+        starOn();
+    else
+        starOff();
 }
 
 void starOn()
 {
-  if (ledcRead(0) < 1023)
-  {
-    if (fadeMode)
+    if (ledcRead(0) < 1023)
     {
-      fadeIn();
+        if (fadeMode)
+        {
+            fadeIn();
+        }
+        else
+        {
+            ledcWrite(0, 1023);
+            starRelais(true);
+            debugln("[Star] Turned on!");
+            starStarted = true;
+        }
     }
-    else
-    {
-      ledcWrite(0, 1023);
-      starRelais(true);
-      debugln("[Star] Turned on!");
-      starStarted = true;
-    }
-  }
 }
 
 void starOff()
 {
-  if (ledcRead(0) > 0)
-  {
-    if (fadeMode)
+    if (ledcRead(0) > 0)
     {
-      fadeOut();
+        if (fadeMode)
+        {
+            fadeOut();
+        }
+        else
+        {
+            ledcWrite(0, 0);
+            starRelais(false);
+            debugln("[Star] Turned off!");
+            starStarted = true;
+        }
     }
-    else
-    {
-      ledcWrite(0, 0);
-      starRelais(false);
-      debugln("[Star] Turned off!");
-      starStarted = true;
-    }
-  }
 }
 
 void fadeIn()
 {
-  if (fadeInProcess && fadeStep <= 1023)
-  {
-    if (millis() > (starFadePause + starFadeMillis))
+    if (fadeInProcess && fadeStep <= 1023)
     {
-      starFadeMillis = millis();
-      if (fadeStep < 1018)
-      {
-        fadeStep++;
-        ledcWrite(0, fadeStep);
-      }
-      else if (fadeStep >= 1018)
-      {
-        fadeStep = 1023;
-        ledcWrite(0, fadeStep);
-        fadeInProcess = false;
-        debugln("[Star] Finished Up-Fade!");
-        starStarted = true;
-      }
-      // debug("[Star] Step Up: ");
-      // debugln(fadeStep);
+        if (millis() > (starFadePause + starFadeMillis))
+        {
+            starFadeMillis = millis();
+            if (fadeStep < 1018)
+            {
+                fadeStep++;
+                ledcWrite(0, fadeStep);
+            }
+            else if (fadeStep >= 1018)
+            {
+                fadeStep = 1023;
+                ledcWrite(0, fadeStep);
+                fadeInProcess = false;
+                debugln("[Star] Finished Up-Fade!");
+                starStarted = true;
+            }
+            // debug("[Star] Step Up: ");
+            // debugln(fadeStep);
+        }
     }
-  }
-  else
-  {
-    fadeInProcess = true;
-    fadeOutProcess = false;
-    starRelais(true);
-    debugln("[Star] Started Up-Fade!");
-  }
+    else
+    {
+        fadeInProcess = true;
+        fadeOutProcess = false;
+        starRelais(true);
+        debugln("[Star] Started Up-Fade!");
+    }
 }
 
 void fadeOut()
 {
-  if (fadeOutProcess && fadeStep >= 0)
-  {
-    if (millis() > (starFadePause + starFadeMillis))
+    if (fadeOutProcess && fadeStep >= 0)
     {
-      starFadeMillis = millis();
-      if (fadeStep > 5)
-      {
-        fadeStep--;
-        ledcWrite(0, fadeStep);
-      }
-      else if (fadeStep <= 5)
-      {
-        fadeStep = 0;
-        ledcWrite(0, fadeStep);
-        starRelais(false);
-        fadeOutProcess = false;
-        debugln("[Star] Finished Down-Fade!");
-        starStarted = true;
-      }
-      // debug("[Star] Step Down: ");
-      // debugln(fadeStep);
+        if (millis() > (starFadePause + starFadeMillis))
+        {
+            starFadeMillis = millis();
+            if (fadeStep > 5)
+            {
+                fadeStep--;
+                ledcWrite(0, fadeStep);
+            }
+            else if (fadeStep <= 5)
+            {
+                fadeStep = 0;
+                ledcWrite(0, fadeStep);
+                starRelais(false);
+                fadeOutProcess = false;
+                debugln("[Star] Finished Down-Fade!");
+                starStarted = true;
+            }
+            // debug("[Star] Step Down: ");
+            // debugln(fadeStep);
+        }
     }
-  }
-  else
-  {
-    fadeOutProcess = true;
-    fadeInProcess = false;
-    if (fadeStep > 0)
+    else
     {
-      starRelais(true);
+        fadeOutProcess = true;
+        fadeInProcess = false;
+        if (fadeStep > 0)
+        {
+            starRelais(true);
+        }
+        debugln("[Star] Started Down-Fade!");
     }
-    debugln("[Star] Started Down-Fade!");
-  }
 }
 
 void fadeReset()
 {
-  fadeInProcess = false;
-  fadeOutProcess = false;
+    fadeInProcess = false;
+    fadeOutProcess = false;
 }
 
 // TFL Functions
 void tflOutput()
 {
-  if (tflMode)
-  {
-    automaticTFL();
-  }
-  else
-  {
-    manualTFL();
-  }
+    if (tflMode)
+    {
+        automaticTFL();
+    }
+    else
+    {
+        manualTFL();
+    }
 }
 
 void automaticTFL()
 {
-  if (tflBool || motorRunning) // since v1.1 also on w/ running motor
-  {
-    tflOn();
-  }
-  else
-  {
-    tflOff();
-  }
+    if (tflBool || motorRunning) // since v1.1 also on w/ running motor
+    {
+        tflOn();
+    }
+    else
+    {
+        tflOff();
+    }
 }
 
 void manualTFL()
 {
-  if (tflSoll)
-  {
-    tflOn();
-  }
-  else
-  {
-    tflOff();
-  }
+    if (tflSoll)
+    {
+        tflOn();
+    }
+    else
+    {
+        tflOff();
+    }
 }
 
 void tflOn()
 {
-  if (((ledcRead(1) < 1023 && motorRunning) || (ledcRead(2) < 1023 && motorRunning)) || ((ledcRead(1) < tflDimTreshold && !motorRunning) || (ledcRead(2) < tflDimTreshold && !motorRunning)))
-  {
-    if (fadeMode)
+    if (((ledcRead(1) < 1023 && motorRunning) || (ledcRead(2) < 1023 && motorRunning)) || ((ledcRead(1) < tflDimTreshold && !motorRunning) || (ledcRead(2) < tflDimTreshold && !motorRunning)))
     {
-      fadeInTFL();
-    }
-    else
-    {
-      if (motorRunning)
-      {
-        ledcWrite(1, 1023);
-        ledcWrite(2, 1023);
-      }
-      else
-      {
-        ledcWrite(1, tflDimTreshold);
-        ledcWrite(2, tflDimTreshold);
-      }
-      tflRelais(true);
-      debugln("[TFL] Turned on!");
-      tflStarted = true;
-    }
-  }
-  else if ((!motorRunning && (ledcRead(1) > tflDimTreshold)) || (!motorRunning && (ledcRead(2) > tflDimTreshold)))
-  {
-    if (ledcRead(1) > tflDimTreshold || ledcRead(2) > tflDimTreshold)
-    {
-      if (fadeMode)
-      {
-        if (fadeOutProcessTFL && fadeStepTFL > tflDimTreshold)
+        if (fadeMode)
         {
-          if (millis() > (tflFadePause + tflFadeMillis))
-          {
-            tflFadeMillis = millis();
-            if (fadeStepTFL > (tflDimTreshold + 1))
-            {
-              fadeStepTFL--;
-              ledcWrite(1, fadeStepTFL);
-              ledcWrite(2, fadeStepTFL);
-            }
-            else if (fadeStepTFL <= (tflDimTreshold + 1))
-            {
-              fadeStepTFL = tflDimTreshold;
-              ledcWrite(1, fadeStepTFL);
-              ledcWrite(2, fadeStepTFL);
-              tflRelais(true);
-              fadeOutProcessTFL = false;
-              debugln("[TFL] Motor stop - dimmed!");
-              tflStarted = true;
-            }
-            // debug("[TFL] Step Down: ");
-            // debugln(fadeStepTFL);
-          }
+            fadeInTFL();
         }
         else
         {
-          fadeOutProcessTFL = true;
-          fadeInProcessTFL = false;
-          if (fadeStepTFL > 0)
-          {
+            if (motorRunning)
+            {
+                ledcWrite(1, 1023);
+                ledcWrite(2, 1023);
+            }
+            else
+            {
+                ledcWrite(1, tflDimTreshold);
+                ledcWrite(2, tflDimTreshold);
+            }
             tflRelais(true);
-          }
-          debugln("[TFL] Started Dimmed-Fade!");
-          if (fadeStepTFL == tflDimTreshold)
-          {
-            ledcWrite(1, fadeStepTFL);
-            ledcWrite(2, fadeStepTFL);
-            tflRelais(true);
-            fadeOutProcessTFL = false;
-            debugln("[TFL] Motor stop - dimmed!");
+            debugln("[TFL] Turned on!");
             tflStarted = true;
-          }
         }
-      }
-      else
-      {
-        ledcWrite(1, tflDimTreshold);
-        ledcWrite(2, tflDimTreshold);
-        tflRelais(true);
-        debugln("[TFL] Motor stop - dimmed!");
-        tflStarted = true;
-      }
     }
-  }
+    else if ((!motorRunning && (ledcRead(1) > tflDimTreshold)) || (!motorRunning && (ledcRead(2) > tflDimTreshold)))
+    {
+        if (ledcRead(1) > tflDimTreshold || ledcRead(2) > tflDimTreshold)
+        {
+            if (fadeMode)
+            {
+                if (fadeOutProcessTFL && fadeStepTFL > tflDimTreshold)
+                {
+                    if (millis() > (tflFadePause + tflFadeMillis))
+                    {
+                        tflFadeMillis = millis();
+                        if (fadeStepTFL > (tflDimTreshold + 1))
+                        {
+                            fadeStepTFL--;
+                            ledcWrite(1, fadeStepTFL);
+                            ledcWrite(2, fadeStepTFL);
+                        }
+                        else if (fadeStepTFL <= (tflDimTreshold + 1))
+                        {
+                            fadeStepTFL = tflDimTreshold;
+                            ledcWrite(1, fadeStepTFL);
+                            ledcWrite(2, fadeStepTFL);
+                            tflRelais(true);
+                            fadeOutProcessTFL = false;
+                            debugln("[TFL] Motor stop - dimmed!");
+                            tflStarted = true;
+                        }
+                        // debug("[TFL] Step Down: ");
+                        // debugln(fadeStepTFL);
+                    }
+                }
+                else
+                {
+                    fadeOutProcessTFL = true;
+                    fadeInProcessTFL = false;
+                    if (fadeStepTFL > 0)
+                    {
+                        tflRelais(true);
+                    }
+                    debugln("[TFL] Started Dimmed-Fade!");
+                    if (fadeStepTFL == tflDimTreshold)
+                    {
+                        ledcWrite(1, fadeStepTFL);
+                        ledcWrite(2, fadeStepTFL);
+                        tflRelais(true);
+                        fadeOutProcessTFL = false;
+                        debugln("[TFL] Motor stop - dimmed!");
+                        tflStarted = true;
+                    }
+                }
+            }
+            else
+            {
+                ledcWrite(1, tflDimTreshold);
+                ledcWrite(2, tflDimTreshold);
+                tflRelais(true);
+                debugln("[TFL] Motor stop - dimmed!");
+                tflStarted = true;
+            }
+        }
+    }
 }
 
 void tflOff()
 {
-  if (ledcRead(1) > 0 || ledcRead(2) > 0)
-  {
-    if (fadeMode)
+    if (ledcRead(1) > 0 || ledcRead(2) > 0)
     {
-      fadeOutTFL();
+        if (fadeMode)
+        {
+            fadeOutTFL();
+        }
+        else
+        {
+            ledcWrite(1, 0);
+            ledcWrite(2, 0);
+            tflRelais(false);
+            debugln("[TFL] Turned off!");
+            tflStarted = true;
+        }
     }
-    else
-    {
-      ledcWrite(1, 0);
-      ledcWrite(2, 0);
-      tflRelais(false);
-      debugln("[TFL] Turned off!");
-      tflStarted = true;
-    }
-  }
 }
 
 void fadeInTFL()
 {
-  if (fadeInProcessTFL && fadeStepTFL < 1023)
-  {
-    if (millis() > (tflFadePause + tflFadeMillis))
+    if (fadeInProcessTFL && fadeStepTFL < 1023)
     {
-      tflFadeMillis = millis();
-      if ((fadeStepTFL < 1018 && motorRunning) || (fadeStepTFL < (tflDimTreshold - 1) && !motorRunning))
-      {
-        fadeStepTFL++;
-        ledcWrite(1, fadeStepTFL);
-        ledcWrite(2, fadeStepTFL);
-      }
-      else if (fadeStepTFL >= 1018 && motorRunning)
-      {
-        fadeStepTFL = 1023;
-        ledcWrite(1, fadeStepTFL);
-        ledcWrite(2, fadeStepTFL);
-        fadeInProcessTFL = false;
-        debugln("[TFL] Finished Up-Fade (full)!");
-        tflStarted = true;
-      }
-      else if (fadeStepTFL >= (tflDimTreshold - 1) && !motorRunning)
-      {
-        fadeStepTFL = tflDimTreshold;
-        ledcWrite(1, fadeStepTFL);
-        ledcWrite(2, fadeStepTFL);
-        fadeInProcessTFL = false;
-        debugln("[TFL] Finished Up-Fade (dimmed)!");
-        tflStarted = true;
-      }
-      // debug("[TFL] Step Up: ");
-      // debugln(fadeStepTFL);
+        if (millis() > (tflFadePause + tflFadeMillis))
+        {
+            tflFadeMillis = millis();
+            if ((fadeStepTFL < 1018 && motorRunning) || (fadeStepTFL < (tflDimTreshold - 1) && !motorRunning))
+            {
+                fadeStepTFL++;
+                ledcWrite(1, fadeStepTFL);
+                ledcWrite(2, fadeStepTFL);
+            }
+            else if (fadeStepTFL >= 1018 && motorRunning)
+            {
+                fadeStepTFL = 1023;
+                ledcWrite(1, fadeStepTFL);
+                ledcWrite(2, fadeStepTFL);
+                fadeInProcessTFL = false;
+                debugln("[TFL] Finished Up-Fade (full)!");
+                tflStarted = true;
+            }
+            else if (fadeStepTFL >= (tflDimTreshold - 1) && !motorRunning)
+            {
+                fadeStepTFL = tflDimTreshold;
+                ledcWrite(1, fadeStepTFL);
+                ledcWrite(2, fadeStepTFL);
+                fadeInProcessTFL = false;
+                debugln("[TFL] Finished Up-Fade (dimmed)!");
+                tflStarted = true;
+            }
+            // debug("[TFL] Step Up: ");
+            // debugln(fadeStepTFL);
+        }
     }
-  }
-  else
-  {
-    fadeInProcessTFL = true;
-    fadeOutProcessTFL = false;
-    tflRelais(true);
-    debugln("[TFL] Started Up-Fade!");
-  }
+    else
+    {
+        fadeInProcessTFL = true;
+        fadeOutProcessTFL = false;
+        tflRelais(true);
+        debugln("[TFL] Started Up-Fade!");
+    }
 }
 
 void fadeOutTFL()
 {
-  if (fadeOutProcessTFL && fadeStepTFL > 0)
-  {
-    if (millis() > (tflFadePause + tflFadeMillis))
+    if (fadeOutProcessTFL && fadeStepTFL > 0)
     {
-      tflFadeMillis = millis();
-      if (fadeStepTFL > 5)
-      {
-        fadeStepTFL--;
-        ledcWrite(1, fadeStepTFL);
-        ledcWrite(2, fadeStepTFL);
-      }
-      else if (fadeStepTFL <= 5)
-      {
-        fadeStepTFL = 0;
-        ledcWrite(1, fadeStepTFL);
-        ledcWrite(2, fadeStepTFL);
-        tflRelais(false);
-        fadeOutProcessTFL = false;
-        debugln("[TFL] Finished Down-Fade!");
-        tflStarted = true;
-      }
-      // debug("[TFL] Step Down: ");
-      // debugln(fadeStepTFL);
+        if (millis() > (tflFadePause + tflFadeMillis))
+        {
+            tflFadeMillis = millis();
+            if (fadeStepTFL > 5)
+            {
+                fadeStepTFL--;
+                ledcWrite(1, fadeStepTFL);
+                ledcWrite(2, fadeStepTFL);
+            }
+            else if (fadeStepTFL <= 5)
+            {
+                fadeStepTFL = 0;
+                ledcWrite(1, fadeStepTFL);
+                ledcWrite(2, fadeStepTFL);
+                tflRelais(false);
+                fadeOutProcessTFL = false;
+                debugln("[TFL] Finished Down-Fade!");
+                tflStarted = true;
+            }
+            // debug("[TFL] Step Down: ");
+            // debugln(fadeStepTFL);
+        }
     }
-  }
-  else
-  {
-    fadeOutProcessTFL = true;
-    fadeInProcessTFL = false;
-    if (fadeStepTFL > 0)
+    else
     {
-      tflRelais(true);
+        fadeOutProcessTFL = true;
+        fadeInProcessTFL = false;
+        if (fadeStepTFL > 0)
+        {
+            tflRelais(true);
+        }
+        debugln("[TFL] Started Down-Fade!");
     }
-    debugln("[TFL] Started Down-Fade!");
-  }
 }
 
 void fadeResetTFL()
 {
-  fadeInProcess = false;
-  fadeOutProcess = false;
+    fadeInProcess = false;
+    fadeOutProcess = false;
 }
 
 // Strobe Functions
 void strobeFct()
 {
-  // Strobe Start
-  if (!strobeActive)
-  {
-    strobeStart(true);
-    starStarted = true;
-    tflStarted = true;
-    debugln("[Strobe] Starting...");
-  }
-  // Strobe Function
-  if (millis() >= strobeMillis + strobePause)
-  {
-    strobeMillis = millis();
-    strobeCycles++;
-    tflRelais(true);
-    starRelais(true);
-    if (ledcRead(0) > 0)
+    // Strobe Start
+    if (!strobeActive)
     {
-      ledcWrite(0, 0);
-      ledcWrite(2, 0);
-      ledcWrite(1, 0);
-      starRelais(false);
-      tflRelais(false);
+        strobeStart(true);
+        starStarted = true;
+        tflStarted = true;
+        debugln("[Strobe] Starting...");
     }
-    else
+    // Strobe Function
+    if (millis() >= strobeMillis + strobePause)
     {
-      ledcWrite(0, 1023);
-      ledcWrite(2, 1023);
-      ledcWrite(1, 1023);
-      starRelais(true);
-      tflRelais(true);
+        strobeMillis = millis();
+        strobeCycles++;
+        tflRelais(true);
+        starRelais(true);
+        if (ledcRead(0) > 0)
+        {
+            ledcWrite(0, 0);
+            ledcWrite(2, 0);
+            ledcWrite(1, 0);
+            starRelais(false);
+            tflRelais(false);
+        }
+        else
+        {
+            ledcWrite(0, 1023);
+            ledcWrite(2, 1023);
+            ledcWrite(1, 1023);
+            starRelais(true);
+            tflRelais(true);
+        }
     }
-  }
 
-  // Strobe Short stop condition
-  if (strobeShort && strobeCycles >= strobeShortCycles)
-  {
-    strobeShort = false;
-    strobeCycles = 0;
-    strobeStop(true);
-  }
+    // Strobe Short stop condition
+    if (strobeShort && strobeCycles >= strobeShortCycles)
+    {
+        strobeShort = false;
+        strobeCycles = 0;
+        strobeStop(true);
+    }
 }
 
 void strobeStart(bool execMQTT)
 {
-  strobe = true;
-  strobeActive = true;
-  buttonStates[0] = true;
+    strobe = true;
+    strobeActive = true;
+    buttonStates[0] = true;
 
-  if (execMQTT)
-  {
-    strobeActiveMQTT = true;
-    uglwStarted = true;
-    selectedModeBefStrobe = selectedModeBef;
-    uglw_modesel4();
-    debugln("\n[STROBE] Current selected Mode: " + String(selectedModeBefStrobe));
-  }
+    if (execMQTT)
+    {
+        strobeActiveMQTT = true;
+        uglwStarted = true;
+        selectedModeBefStrobe = selectedModeBef;
+        uglw_modesel4();
+        debugln("\n[STROBE] Current selected Mode: " + String(selectedModeBefStrobe));
+    }
 
-  strobeDataBefore[0] = ledcRead(0);
-  strobeDataBefore[1] = ledcRead(1);
-  strobeDataBefore[2] = ledcRead(2);
-  strobeDataBefore[3] = digitalRead(pin_starRelais);
-  strobeDataBefore[4] = digitalRead(pin_tflLeftRelais);
-  strobeDataBefore[5] = digitalRead(pin_tflRightRelais);
+    strobeDataBefore[0] = ledcRead(0);
+    strobeDataBefore[1] = ledcRead(1);
+    strobeDataBefore[2] = ledcRead(2);
+    strobeDataBefore[3] = digitalRead(pin_starRelais);
+    strobeDataBefore[4] = digitalRead(pin_tflLeftRelais);
+    strobeDataBefore[5] = digitalRead(pin_tflRightRelais);
 
-  EEPROM.write(strobeAdress, 1);
-  EEPROM.commit();
+    EEPROM.write(strobeAdress, 1);
+    EEPROM.commit();
 }
 
 void strobeStop(bool execMQTT)
 {
-  strobe = false;
-  strobeActive = false;
-  buttonStates[0] = false;
+    strobe = false;
+    strobeActive = false;
+    buttonStates[0] = false;
 
-  if (execMQTT)
-  {
-    debugln("\n[STROBE] Loading before selected Mode: " + String(selectedModeBefStrobe));
-    if (selectedModeBefStrobe == 1)
-      uglw_modesel1();
-    else if (selectedModeBefStrobe == 2)
-      uglw_modesel2();
-    else if (selectedModeBefStrobe == 3)
-      uglw_modesel3();
-    else if (selectedModeBefStrobe == 4)
-      uglw_modesel4();
-    else
-      debugln("\n[STROBE] FX Mode - ERROR thrown concerning mode (strobestop)");
-  }
+    if (execMQTT)
+    {
+        debugln("\n[STROBE] Loading before selected Mode: " + String(selectedModeBefStrobe));
+        if (selectedModeBefStrobe == 1)
+            uglw_modesel1();
+        else if (selectedModeBefStrobe == 2)
+            uglw_modesel2();
+        else if (selectedModeBefStrobe == 3)
+            uglw_modesel3();
+        else if (selectedModeBefStrobe == 4)
+            uglw_modesel4();
+        else
+            debugln("\n[STROBE] FX Mode - ERROR thrown concerning mode (strobestop)");
+    }
 
-  ledcWrite(0, strobeDataBefore[0]);
-  ledcWrite(1, strobeDataBefore[1]);
-  ledcWrite(2, strobeDataBefore[2]);
-  digitalWrite(pin_starRelais, strobeDataBefore[3]);
-  digitalWrite(pin_tflLeftRelais, strobeDataBefore[4]);
-  digitalWrite(pin_tflRightRelais, strobeDataBefore[5]);
+    ledcWrite(0, strobeDataBefore[0]);
+    ledcWrite(1, strobeDataBefore[1]);
+    ledcWrite(2, strobeDataBefore[2]);
+    digitalWrite(pin_starRelais, strobeDataBefore[3]);
+    digitalWrite(pin_tflLeftRelais, strobeDataBefore[4]);
+    digitalWrite(pin_tflRightRelais, strobeDataBefore[5]);
 
-  EEPROM.write(strobeAdress, 0);
-  EEPROM.commit();
+    EEPROM.write(strobeAdress, 0);
+    EEPROM.commit();
 }
 
 // Relais Functions
 void tflRelais(bool mode)
 {
-  if (mode)
-  {
-    digitalWrite(pin_tflLeftRelais, HIGH);
-    digitalWrite(pin_tflRightRelais, HIGH);
-  }
-  else
-  {
-    digitalWrite(pin_tflLeftRelais, LOW);
-    digitalWrite(pin_tflRightRelais, LOW);
-  }
+    if (mode)
+    {
+        digitalWrite(pin_tflLeftRelais, HIGH);
+        digitalWrite(pin_tflRightRelais, HIGH);
+    }
+    else
+    {
+        digitalWrite(pin_tflLeftRelais, LOW);
+        digitalWrite(pin_tflRightRelais, LOW);
+    }
 }
 
 void starRelais(bool mode)
 {
-  if (mode)
-  {
-    digitalWrite(pin_starRelais, HIGH);
-  }
-  else
-  {
-    digitalWrite(pin_starRelais, LOW);
-  }
+    if (mode)
+    {
+        digitalWrite(pin_starRelais, HIGH);
+    }
+    else
+    {
+        digitalWrite(pin_starRelais, LOW);
+    }
 }
 
 // Save & Restore Output Parameters - V1.6 API Client Override Light Scene
 void saveOutputParams()
 {
-  outputParamsBefore[0] = ledcRead(0);
-  outputParamsBefore[1] = ledcRead(1);
-  outputParamsBefore[2] = ledcRead(2);
-  outputParamsBefore[3] = digitalRead(pin_starRelais);
-  outputParamsBefore[4] = digitalRead(pin_tflLeftRelais);
-  outputParamsBefore[5] = digitalRead(pin_tflRightRelais);
+    outputParamsBefore[0] = ledcRead(0);
+    outputParamsBefore[1] = ledcRead(1);
+    outputParamsBefore[2] = ledcRead(2);
+    outputParamsBefore[3] = digitalRead(pin_starRelais);
+    outputParamsBefore[4] = digitalRead(pin_tflLeftRelais);
+    outputParamsBefore[5] = digitalRead(pin_tflRightRelais);
 }
 
 void restoreOutputParams()
 {
-  if (motorRunning && starMotorRestriction)
-    ledcWrite(0, 0);
-  else
-    ledcWrite(0, outputParamsBefore[0]);
-  ledcWrite(1, outputParamsBefore[1]);
-  ledcWrite(2, outputParamsBefore[2]);
-  digitalWrite(pin_starRelais, outputParamsBefore[3]);
-  digitalWrite(pin_tflLeftRelais, outputParamsBefore[4]);
-  digitalWrite(pin_tflRightRelais, outputParamsBefore[5]);
+    if (motorRunning && starMotorRestriction)
+        ledcWrite(0, 0);
+    else
+        ledcWrite(0, outputParamsBefore[0]);
+    ledcWrite(1, outputParamsBefore[1]);
+    ledcWrite(2, outputParamsBefore[2]);
+    digitalWrite(pin_starRelais, outputParamsBefore[3]);
+    digitalWrite(pin_tflLeftRelais, outputParamsBefore[4]);
+    digitalWrite(pin_tflRightRelais, outputParamsBefore[5]);
 }
 
 // API Override Light Scene
 void apiOverrideLights()
 {
-  tflRelais(false);
-  starRelais(false);
-  ledcWrite(0, 0);
-  ledcWrite(1, 0);
-  ledcWrite(2, 0);
+    tflRelais(false);
+    starRelais(false);
+    ledcWrite(0, 0);
+    ledcWrite(1, 0);
+    ledcWrite(2, 0);
 }
 
 // ISR for TFL Input Signal from car - V1.4
 void tflISRInterpret()
 {
-  // Edge event handlers
-  if (tflISRrisingState == 1)
-  {
-    tflISRrisingState = 0;
-    tflISRcontiDetected = false;
-    tflISRlastRise = millis();
-    tflISRrisingCounter++;
-    if (tflISRriseStartBool)
+    // Edge event handlers
+    if (tflISRrisingState == 1)
     {
-      tflISRriseStart = tflISRrisingCounter;
-      tflISRriseStartBool = false;
+        tflISRrisingState = 0;
+        tflISRcontiDetected = false;
+        tflISRlastRise = millis();
+        tflISRrisingCounter++;
+        if (tflISRriseStartBool)
+        {
+            tflISRriseStart = tflISRrisingCounter;
+            tflISRriseStartBool = false;
+        }
+        if (!tflISRpwmDetected)
+            ISRln("[ISR] Rising Edge detected: " + String(tflISRrisingCounter));
     }
-    if (!tflISRpwmDetected)
-      ISRln("[ISR] Rising Edge detected: " + String(tflISRrisingCounter));
-  }
 
-  if (tflISRfallingState == 1)
-  {
-    tflISRfallingState = 0;
-    tflISRcontiDetected = false;
-    tflISRlastFall = millis();
-    tflISRfallingCounter++;
-    if (!tflISRpwmDetected)
-      ISRln("[ISR] Falling Edge detected: " + String(tflISRfallingCounter));
-  }
+    if (tflISRfallingState == 1)
+    {
+        tflISRfallingState = 0;
+        tflISRcontiDetected = false;
+        tflISRlastFall = millis();
+        tflISRfallingCounter++;
+        if (!tflISRpwmDetected)
+            ISRln("[ISR] Falling Edge detected: " + String(tflISRfallingCounter));
+    }
 
-  // Check signal for pwm
-  if ((millis() > (tflISRlastModeCheck + tflISRmodeCheckTreshold)) && !tflISRpwmDetected)
-  {
-    tflISRlastModeCheck = millis();
-    if (tflISRrisingCounterBefore + 5 <= tflISRrisingCounter)
+    // Check signal for pwm
+    if ((millis() > (tflISRlastModeCheck + tflISRmodeCheckTreshold)) && !tflISRpwmDetected)
     {
-      tflBool = true;
-      tflISRpwmDetected = true;
-      ISRln("\n[ISR] TFL PWM signal detected!\n");
-      checkedInputs = true;
+        tflISRlastModeCheck = millis();
+        if (tflISRrisingCounterBefore + 5 <= tflISRrisingCounter)
+        {
+            tflBool = true;
+            tflISRpwmDetected = true;
+            ISRln("\n[ISR] TFL PWM signal detected!\n");
+            checkedInputs = true;
+        }
+        tflISRrisingCounterBefore = tflISRrisingCounter;
     }
-    tflISRrisingCounterBefore = tflISRrisingCounter;
-  }
 
-  // Check signal for continuous levels - compares signal after 2 pulse lenghts to the state before - if the same --> conti level
-  if (((millis() > (tflISRlastRise + tflISRedgeTreshold)) && !tflISRcontiDetected) || ((millis() > (tflISRlastFall + tflISRedgeTreshold)) && !tflISRcontiDetected))
-  {
-    tflISRrisingCounterBefore = tflISRrisingCounter;
-    if (digitalRead(pin_tfl))
+    // Check signal for continuous levels - compares signal after 2 pulse lenghts to the state before - if the same --> conti level
+    if (((millis() > (tflISRlastRise + tflISRedgeTreshold)) && !tflISRcontiDetected) || ((millis() > (tflISRlastFall + tflISRedgeTreshold)) && !tflISRcontiDetected))
     {
-      if ((tflISRrisingCounter >= (tflISRriseStart + 10)) || (millis() > (tflISRlastRise + 200)))
-      {
-        tflBool = true;
-        tflISRcontiDetected = true;
-        tflISRpwmDetected = false;
-        ISRln("\n[ISR] Continuous TFL HIGH detected!\n");
-        checkedInputs = true;
-      }
-      else
-        ISRln("[ISR] tflISRriseStart: " + String(tflISRriseStart) + " " + String(tflISRrisingCounter));
+        tflISRrisingCounterBefore = tflISRrisingCounter;
+        if (digitalRead(pin_tfl))
+        {
+            if ((tflISRrisingCounter >= (tflISRriseStart + 10)) || (millis() > (tflISRlastRise + 200)))
+            {
+                tflBool = true;
+                tflISRcontiDetected = true;
+                tflISRpwmDetected = false;
+                ISRln("\n[ISR] Continuous TFL HIGH detected!\n");
+                checkedInputs = true;
+            }
+            else
+                ISRln("[ISR] tflISRriseStart: " + String(tflISRriseStart) + " " + String(tflISRrisingCounter));
+        }
+        else
+        {
+            tflBool = false;
+            tflISRcontiDetected = true;
+            tflISRpwmDetected = false;
+            tflISRriseStartBool = true;
+            ISRln("\n[ISR] Continuous TFL LOW detected!\n");
+            checkedInputs = true;
+        }
     }
-    else
-    {
-      tflBool = false;
-      tflISRcontiDetected = true;
-      tflISRpwmDetected = false;
-      tflISRriseStartBool = true;
-      ISRln("\n[ISR] Continuous TFL LOW detected!\n");
-      checkedInputs = true;
-    }
-  }
 }
 
 // EEPROM
 void eeprom_initLastState()
 {
-  debugln("\n[EEPROM] Starting data extratction!");
-
-  // Betriebsmodus State
-  int bmcontent = int(EEPROM.read(betriebsmodusAdress));
-
-  debugln("[EEPROM] Star Modus: " + String(bmcontent));
-
-  if (bmcontent == 1)
-  {
-    starMode = true; // Automatic
-  }
-  else if (bmcontent == 0)
-  {
-    starMode = false; // Manually
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Star Modus");
-    EEPROM.write(betriebsmodusAdress, 1); // then write mode automatic
-    starMode = true;                      // Automatic
-  }
-
-  if (starMode)
-  {
-    sliderValues[0] = 1;
-  }
-
-  // LED Star State
-  int starContent = int(EEPROM.read(starAdress)); // read EEPROM
-
-  debugln("[EEPROM] Star LED: " + String(starContent));
-
-  if (starContent == 1)
-  {
-    starSoll = true;
-  }
-  else if (starContent == 0)
-  {
-    starSoll = false;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Star LED");
-    EEPROM.write(starAdress, 0); // then write star off
-    starSoll = false;
-  }
-
-  if (!starMode)
-  {
-    starSoll ? sliderValues[0] = 2 : sliderValues[0] = 3;
-  }
-
-  // TFL Mode State
-  int tflModeContent = int(EEPROM.read(tflModeAdress)); // read EEPROM
-
-  debugln("[EEPROM] TFL Modus: " + String(tflModeContent));
-
-  if (tflModeContent == 1)
-  {
-    tflMode = true;
-  }
-  else if (tflModeContent == 0)
-  {
-    tflMode = false;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - TFL Modus");
-    EEPROM.write(tflModeAdress, 0); // then don't override tfl
-    tflMode = false;
-  }
-
-  if (tflMode)
-  {
-    sliderValues[1] = 1;
-  }
-
-  // TFL Override State
-  int tflContent = int(EEPROM.read(tflAdress)); // read EEPROM
-
-  debugln("[EEPROM] TFL LED: " + String(tflContent));
-
-  if (tflContent == 1)
-  {
-    tflSoll = true;
-  }
-  else if (tflContent == 0)
-  {
-    tflSoll = false;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - TFL LED");
-    EEPROM.write(tflAdress, 0); // then don't override tfl
-    tflSoll = false;
-  }
-
-  if (!tflMode)
-  {
-    tflSoll ? sliderValues[1] = 2 : sliderValues[1] = 3;
-  }
-
-  // Fade Modus State
-  int fadeContent = int(EEPROM.read(fademodusAdress)); // read EEPROM
-
-  debugln("[EEPROM] Fade Modus: " + String(fadeContent));
-
-  if (fadeContent == 1)
-  {
-    fadeMode = true;
-  }
-  else if (fadeContent == 0)
-  {
-    fadeMode = false;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Fade Modus");
-    EEPROM.write(fademodusAdress, 1); // then write fade on
-    fadeMode = false;
-  }
-
-  buttonStates[1] = fadeMode;
-
-  // Star Fade Pause
-  int stfpContent = int(EEPROM.read(starFadePauseAdress)); // read EEPROM
-
-  debugln("[EEPROM] Star Fade-Pause: " + String(stfpContent));
-
-  bool logicState = true;
-
-  if (stfpContent == 3)
-  {
-    starFadePause = fadePauseFast;
-  }
-  else if (stfpContent == 2)
-  {
-    starFadePause = fadePauseNormal;
-  }
-  else if (stfpContent == 1)
-  {
-    starFadePause = fadePauseSlow;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Star Fade-Pause");
-    EEPROM.write(starFadePauseAdress, 2); // then set to 2 default fade pause
-    starFadePause = 2;
-    logicState = false;
-  }
-
-  logicState ? sliderValues[2] = stfpContent : logicState = false;
-
-  // TFL Fade Pause
-  int tflfpContent = int(EEPROM.read(tflFadePauseAdress)); // read EEPROM
-
-  debugln("[EEPROM] TFL Fade-Pause: " + String(tflfpContent));
-
-  logicState = true;
-
-  if (tflfpContent == 3)
-  {
-    tflFadePause = fadePauseFast;
-  }
-  else if (tflfpContent == 2)
-  {
-    tflFadePause = fadePauseNormal;
-  }
-  else if (tflfpContent == 1)
-  {
-    tflFadePause = fadePauseSlow;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - TFL Fade-Pause");
-    EEPROM.write(tflFadePauseAdress, 2); // then set to 2 default fade pause
-    tflFadePause = 2;
-    logicState = false;
-  }
-
-  logicState ? sliderValues[3] = tflfpContent : logicState = false;
-
-  // Strobe
-  int strobeContent = int(EEPROM.read(strobeAdress)); // read EEPROM
-
-  debugln("[EEPROM] Strobe: " + String(strobeContent));
-
-  if (strobeContent == 0)
-  {
-    strobe = false;
-  }
-  else if (strobeContent == 1)
-  {
-    strobe = true;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Strobe");
-    EEPROM.write(strobeAdress, 0); // then set to 0 default strobe off
-    strobe = false;
-  }
-
-  buttonStates[0] = strobe;
-
-  // Star Motor Restriction
-  int restrictionContent = int(EEPROM.read(starMotorRestrictionAdress)); // read EEPROM
-
-  debugln("[EEPROM] Star Motor Restriction: " + String(restrictionContent));
-
-  if (restrictionContent == 0)
-  {
-    starMotorRestriction = false;
-  }
-  else if (restrictionContent == 1)
-  {
-    starMotorRestriction = true;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Star Motor Restriction");
-    EEPROM.write(starMotorRestrictionAdress, 1); // then set to 1 default star off on motor on
-    starMotorRestriction = true;
-  }
-
-  buttonStates[2] = starMotorRestriction;
-
-  // Prepare Button Array for Webserver
-  if (starMotorRestriction)
-    buttonStates[2] = 1;
-  else
-    buttonStates[2] = 0;
-
-  // API Override Lights
-  int apiOverrideContent = int(EEPROM.read(apiOverrideOffAdress)); // read EEPROM
-
-  debug("[EEPROM] API Override Lights: " + String(apiOverrideContent));
-
-  if (apiOverrideContent == 0)
-  {
-    apiOverrideOff = false;
-    emergency = false;
-    debugln(" - [EMERGENCY] Mode deactivated!");
-  }
-  else if (apiOverrideContent == 1)
-  {
-    apiOverrideOff = true;
-    emergency = true;
-    debugln(" - [EMERGENCY] Mode activated!");
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - API Override Lights - [EMERGENCY] Mode activated!");
-    EEPROM.write(apiOverrideOffAdress, 1); // then set to 1 default - lights off
-    apiOverrideOff = true;
-    emergency = true;
-  }
-
-  // LEDs Mode
-  int modeContent = int(EEPROM.read(modeAdress));
-
-  debugln("[EEPROM] LEDs - Mode: " + String(modeContent));
-
-  if (modeContent >= 0 && modeContent <= 56)
-  {
-    led_mode = modeContent;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Mode - Out of range (0-56)!");
-    led_mode = 0;
-    EEPROM.write(modeAdress, led_mode); // then static
-  }
-
-  // LEDs Color 1
-  unsigned int colorContent1 = readColorEEPROM(false, 1);
-
-  debugln("[EEPROM] LEDs - Color 1: " + String(colorContent1));
-
-  if (colorContent1 >= 0 && colorContent1 <= 16777215)
-  {
-    led_color1 = colorContent1;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Color 1 - Out of range (0x0-0xFFFFFF)!");
-    led_color1 = 0;
-    EEPROM.write(color1_1Adress, led_color1); // then no color
-    EEPROM.write(color1_2Adress, led_color1); // then no color
-    EEPROM.write(color1_3Adress, led_color1); // then no color
-  }
-
-  // LEDs Color 2
-  unsigned int colorContent2 = readColorEEPROM(false, 2);
-
-  debugln("[EEPROM] LEDs - Color 2: " + String(colorContent2));
-
-  if (colorContent2 >= 0 && colorContent2 <= 16777215)
-  {
-    led_color2 = colorContent2;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Color 2 - Out of range (0x0-0xFFFFFF)!");
-    led_color2 = 0;
-    EEPROM.write(color2_1Adress, led_color2); // then no color
-    EEPROM.write(color2_2Adress, led_color2); // then no color
-    EEPROM.write(color2_3Adress, led_color2); // then no color
-  }
-
-  // LEDs Color 3
-  unsigned int colorContent3 = readColorEEPROM(false, 3);
-
-  debugln("[EEPROM] LEDs - Color 3: " + String(colorContent3));
-
-  if (colorContent3 >= 0 && colorContent3 <= 16777215)
-  {
-    led_color3 = colorContent3;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Color 3 - Out of range (0x0-0xFFFFFF)!");
-    led_color3 = 0;
-    EEPROM.write(color2_1Adress, led_color3); // then no color
-    EEPROM.write(color2_2Adress, led_color3); // then no color
-    EEPROM.write(color2_3Adress, led_color3); // then no color
-  }
-
-  // LEDs Brightness
-  int brtnsContent = int(EEPROM.read(brtnsAdress));
-
-  debugln("[EEPROM] LEDs - Brightness: " + String(brtnsContent));
-
-  if (brtnsContent >= 0 && brtnsContent <= 255)
-  {
-    led_brtns = brtnsContent;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Brightness - Out of range (0-255)!");
-    led_brtns = 0;
-    EEPROM.write(brtnsAdress, led_brtns); // then dark
-  }
-
-  sliderValues[4] = led_brtns;
-
-  // LEDs Speed
-  unsigned int speedContent = readSpeedEEPROM(false);
-
-  debugln("[EEPROM] LEDs - Speed: " + String(speedContent));
-
-  if (speedContent >= 0 && speedContent <= 65535)
-  {
-    led_speed = speedContent;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Speed - Out of range (0x0-0xFFFF)!");
-    led_speed = 10000;
-    writeSpeedEEPROM(led_speed, false);
-  }
-
-  sliderValues[5] = led_speed;
-
-  // UGLW Motor Restriction
-  int uglwMRESTContent = int(EEPROM.read(uglwMotorRestrictionAdress)); // read EEPROM
-
-  debugln("[EEPROM] UGLW Motor Restriction: " + String(uglwMRESTContent));
-
-  if (uglwMRESTContent == 0)
-  {
-    uglwMotorRestriction = false;
-  }
-  else if (uglwMRESTContent == 1)
-  {
-    uglwMotorRestriction = true;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - UGLW Motor Restriction");
-    EEPROM.write(uglwMotorRestrictionAdress, 1); // then set to 1 default uglw off on motor on
-    starMotorRestriction = true;
-  }
-
-  buttonStates[3] = uglwMotorRestriction;
-
-  // Battery Voltage Threshold
-  float batVoltThres;
-  EEPROM.get(batVoltThresAdress, batVoltThres); // read EEPROM
-
-  debugln("[EEPROM] Battery-Voltage Threshold: " + String(batVoltThres));
-
-  if (batVoltThres >= 10.0 && batVoltThres <= 15.0)
-  {
-    batteryThreshold = batVoltThres;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Battery-Voltage Threshold");
-    EEPROM.put(batVoltThresAdress, 12.0); // then set to 12
-    batteryThreshold = 12.0;
-  }
-
-  sliderValuesFloat[0] = batVoltThres;
-
-  // Battery Voltage Offset
-  float batVoltOs;
-  EEPROM.get(batVoltOffsetAdress, batVoltOs); // read EEPROM
-
-  debugln("[EEPROM] Battery-Voltage Offset: " + String(batVoltOs));
-
-  if (batVoltOs >= -5.0 && batVoltOs <= 5.0)
-  {
-    batVoltOffset = batVoltOs;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Battery-Voltage Offset");
-    EEPROM.put(batVoltOffsetAdress, 1.8);
-    batVoltOffset = 1.8;
-  }
-
-  sliderValuesFloat[1] = batVoltOffset;
-
-  // Favorite UGLW Mode
-  int favMode = EEPROM.read(favoriteModeAdress);
-
-  debugln("[EEPROM] Favorite UGLW Mode: " + String(favMode));
-
-  if (favMode >= 0 && favMode <= 56)
-  {
-    favoriteMode = favMode;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Mode - Out of range (0-56)!");
-    EEPROM.write(favoriteModeAdress, 0);
-    favoriteMode = 0;
-  }
-
-  // Favorite UGLW Color 1
-  unsigned int favColor1 = readColorEEPROM(true, 1);
-
-  debugln("[EEPROM] Favorite UGLW Color 1: " + String(favColor1));
-
-  if (favColor1 >= 0 && favColor1 <= 16777215)
-  {
-    favoriteColor1 = favColor1;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 1 - Out of range (0x0-0xFFFFFF)!");
-    writeColorEEPROM(0, true, 1U);
-    favoriteColor1 = 0;
-  }
-
-  // Favorite UGLW Color 2
-  unsigned int favColor2 = readColorEEPROM(true, 2);
-
-  debugln("[EEPROM] Favorite UGLW Color 2: " + String(favColor2));
-
-  if (favColor2 >= 0 && favColor2 <= 16777215)
-  {
-    favoriteColor2 = favColor2;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 2 - Out of range (0x0-0xFFFFFF)!");
-    writeColorEEPROM(0, true, 1U);
-    favoriteColor2 = 0;
-  }
-
-  // Favorite UGLW Color 3
-  unsigned int favColor3 = readColorEEPROM(true, 3);
-
-  debugln("[EEPROM] Favorite UGLW Color 3: " + String(favColor3));
-
-  if (favColor3 >= 0 && favColor3 <= 16777215)
-  {
-    favoriteColor3 = favColor3;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 3 - Out of range (0x0-0xFFFFFF)!");
-    writeColorEEPROM(0, true, 1U);
-    favoriteColor3 = 0;
-  }
-
-  // Favorite UGLW Brtns
-  int favBrtns = EEPROM.read(favoriteBrtnsAdress);
-
-  debugln("[EEPROM] Favorite UGLW Brightness: " + String(favBrtns));
-
-  if (favBrtns >= 0 && favBrtns <= 255)
-  {
-    favoriteBrtns = favBrtns;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Brightness - Out of range (0-255)!");
-    EEPROM.write(favoriteBrtnsAdress, 0);
-    favoriteBrtns = 0;
-  }
-
-  // Favorite UGLW Speed
-  unsigned int favSpeed = readSpeedEEPROM(true);
-
-  debugln("[EEPROM] Favorite UGLW Speed: " + String(favSpeed));
-
-  if (favSpeed >= 0 && favSpeed <= 65535)
-  {
-    favoriteSpeed = favSpeed;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Speed - Out of range (0x0-0xFFFF)!");
-    favoriteSpeed = 10000;
-    writeSpeedEEPROM(favoriteSpeed, true);
-  }
-
-  // Favorite UGLW FadeSize
-  uint8_t favfs = (uint8_t)EEPROM.read(favoriteFadeSizeAdress);
-
-  debugln("[EEPROM] Favorite UGLW FadeSize: " + String(favfs));
-
-  if (favfs >= 1 && favfs <= 4)
-  {
-    favoriteFadeSize = favfs;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - Favorite FadeSize - Out of range (1-4)!");
-    favoriteFadeSize = 2;
-    EEPROM.write(favoriteFadeSizeAdress, favoriteFadeSize);
-  }
-
-  // UGLW TFL-REST.
-  int uglwTFL = EEPROM.read(uglwTFLRestrictionAdress); // read EEPROM
-
-  debugln("[EEPROM] UGLW TFL Restriction: " + String(uglwTFL));
-
-  if (uglwTFL == 1)
-    uglwTFLRestriction = true;
-  else if (uglwTFL == 0)
-    uglwTFLRestriction = false;
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - UGLW TFL Restriction");
-    EEPROM.write(uglwTFLRestrictionAdress, 1);
-    uglwTFLRestriction = true;
-  }
-
-  buttonStates[4] = uglwTFLRestriction;
-
-  // UGLW Transition Coefficient
-  float transCoef;
-  EEPROM.get(transitionCoefficientAdress, transCoef); // read EEPROM
-
-  debugln("[EEPROM] Transition Coefficient: " + String(transCoef));
-
-  if (transCoef >= -5.0 && transCoef <= 5.0)
-  {
-    transitionCoefficient = transCoef;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Transition Coefficient - Setting to 1.18");
-    transCoef = 1.18;
-    EEPROM.put(transitionCoefficientAdress, transCoef);
-  }
-
-  sliderValuesFloat[2] = transCoef;
-
-  // Batvolt Motor Offset
-  float batVoltOfMo;
-  EEPROM.get(batVoltOffsetMotorAdress, batVoltOfMo); // read EEPROM
-
-  debugln("[EEPROM] Battery-Voltage Motor Offset: " + String(batVoltOfMo));
-
-  if (batVoltOfMo >= -5.0 && batVoltOfMo <= 5.0)
-  {
-    motorVoltOffset = batVoltOfMo;
-  }
-  else // if no logic state
-  {
-    debugln("[EEPROM] Reading failed - Battery-Voltage Motor Offset");
-    motorVoltOffset = 0.0;
-    EEPROM.put(batVoltOffsetMotorAdress, motorVoltOffset);
-  }
-
-  sliderValuesFloat[3] = motorVoltOffset;
-
-  // UGLW FadeSize
-  uint8_t fadeSizeContent = EEPROM.read(fadeSizeAdress);
-
-  debugln("[EEPROM] LEDs - FadeSize: " + String(fadeSizeContent));
-
-  if (fadeSizeContent >= 1 && fadeSizeContent <= 4)
-  {
-    fadeSize = fadeSizeContent;
-  }
-  else
-  {
-    debugln("[EEPROM] Reading was no valid option: LEDs - FadeSize - Out of range (1-4)!");
-    fadeSize = 2;
-    EEPROM.write(fadeSizeAdress, fadeSize);
-  }
-
-  sliderValues[6] = fadeSize;
-
-  EEPROM.commit();
-
-  debugln("[EEPROM] Extraction completed!");
+    debugln("\n[EEPROM] Starting data extratction!");
+
+    // Betriebsmodus State
+    int bmcontent = int(EEPROM.read(betriebsmodusAdress));
+
+    debugln("[EEPROM] Star Modus: " + String(bmcontent));
+
+    if (bmcontent == 1)
+    {
+        starMode = true; // Automatic
+    }
+    else if (bmcontent == 0)
+    {
+        starMode = false; // Manually
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Star Modus");
+        EEPROM.write(betriebsmodusAdress, 1); // then write mode automatic
+        starMode = true;                      // Automatic
+    }
+
+    if (starMode)
+    {
+        sliderValues[0] = 1;
+    }
+
+    // LED Star State
+    int starContent = int(EEPROM.read(starAdress)); // read EEPROM
+
+    debugln("[EEPROM] Star LED: " + String(starContent));
+
+    if (starContent == 1)
+    {
+        starSoll = true;
+    }
+    else if (starContent == 0)
+    {
+        starSoll = false;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Star LED");
+        EEPROM.write(starAdress, 0); // then write star off
+        starSoll = false;
+    }
+
+    if (!starMode)
+    {
+        starSoll ? sliderValues[0] = 2 : sliderValues[0] = 3;
+    }
+
+    // TFL Mode State
+    int tflModeContent = int(EEPROM.read(tflModeAdress)); // read EEPROM
+
+    debugln("[EEPROM] TFL Modus: " + String(tflModeContent));
+
+    if (tflModeContent == 1)
+    {
+        tflMode = true;
+    }
+    else if (tflModeContent == 0)
+    {
+        tflMode = false;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - TFL Modus");
+        EEPROM.write(tflModeAdress, 0); // then don't override tfl
+        tflMode = false;
+    }
+
+    if (tflMode)
+    {
+        sliderValues[1] = 1;
+    }
+
+    // TFL Override State
+    int tflContent = int(EEPROM.read(tflAdress)); // read EEPROM
+
+    debugln("[EEPROM] TFL LED: " + String(tflContent));
+
+    if (tflContent == 1)
+    {
+        tflSoll = true;
+    }
+    else if (tflContent == 0)
+    {
+        tflSoll = false;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - TFL LED");
+        EEPROM.write(tflAdress, 0); // then don't override tfl
+        tflSoll = false;
+    }
+
+    if (!tflMode)
+    {
+        tflSoll ? sliderValues[1] = 2 : sliderValues[1] = 3;
+    }
+
+    // Fade Modus State
+    int fadeContent = int(EEPROM.read(fademodusAdress)); // read EEPROM
+
+    debugln("[EEPROM] Fade Modus: " + String(fadeContent));
+
+    if (fadeContent == 1)
+    {
+        fadeMode = true;
+    }
+    else if (fadeContent == 0)
+    {
+        fadeMode = false;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Fade Modus");
+        EEPROM.write(fademodusAdress, 1); // then write fade on
+        fadeMode = false;
+    }
+
+    buttonStates[1] = fadeMode;
+
+    // Star Fade Pause
+    int stfpContent = int(EEPROM.read(starFadePauseAdress)); // read EEPROM
+
+    debugln("[EEPROM] Star Fade-Pause: " + String(stfpContent));
+
+    bool logicState = true;
+
+    if (stfpContent == 3)
+    {
+        starFadePause = fadePauseFast;
+    }
+    else if (stfpContent == 2)
+    {
+        starFadePause = fadePauseNormal;
+    }
+    else if (stfpContent == 1)
+    {
+        starFadePause = fadePauseSlow;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Star Fade-Pause");
+        EEPROM.write(starFadePauseAdress, 2); // then set to 2 default fade pause
+        starFadePause = 2;
+        logicState = false;
+    }
+
+    logicState ? sliderValues[2] = stfpContent : logicState = false;
+
+    // TFL Fade Pause
+    int tflfpContent = int(EEPROM.read(tflFadePauseAdress)); // read EEPROM
+
+    debugln("[EEPROM] TFL Fade-Pause: " + String(tflfpContent));
+
+    logicState = true;
+
+    if (tflfpContent == 3)
+    {
+        tflFadePause = fadePauseFast;
+    }
+    else if (tflfpContent == 2)
+    {
+        tflFadePause = fadePauseNormal;
+    }
+    else if (tflfpContent == 1)
+    {
+        tflFadePause = fadePauseSlow;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - TFL Fade-Pause");
+        EEPROM.write(tflFadePauseAdress, 2); // then set to 2 default fade pause
+        tflFadePause = 2;
+        logicState = false;
+    }
+
+    logicState ? sliderValues[3] = tflfpContent : logicState = false;
+
+    // Strobe
+    int strobeContent = int(EEPROM.read(strobeAdress)); // read EEPROM
+
+    debugln("[EEPROM] Strobe: " + String(strobeContent));
+
+    if (strobeContent == 0)
+    {
+        strobe = false;
+    }
+    else if (strobeContent == 1)
+    {
+        strobe = true;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Strobe");
+        EEPROM.write(strobeAdress, 0); // then set to 0 default strobe off
+        strobe = false;
+    }
+
+    buttonStates[0] = strobe;
+
+    // Star Motor Restriction
+    int restrictionContent = int(EEPROM.read(starMotorRestrictionAdress)); // read EEPROM
+
+    debugln("[EEPROM] Star Motor Restriction: " + String(restrictionContent));
+
+    if (restrictionContent == 0)
+    {
+        starMotorRestriction = false;
+    }
+    else if (restrictionContent == 1)
+    {
+        starMotorRestriction = true;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Star Motor Restriction");
+        EEPROM.write(starMotorRestrictionAdress, 1); // then set to 1 default star off on motor on
+        starMotorRestriction = true;
+    }
+
+    buttonStates[2] = starMotorRestriction;
+
+    // Prepare Button Array for Webserver
+    if (starMotorRestriction)
+        buttonStates[2] = 1;
+    else
+        buttonStates[2] = 0;
+
+    // API Override Lights
+    int apiOverrideContent = int(EEPROM.read(apiOverrideOffAdress)); // read EEPROM
+
+    debug("[EEPROM] API Override Lights: " + String(apiOverrideContent));
+
+    if (apiOverrideContent == 0)
+    {
+        apiOverrideOff = false;
+        emergency = false;
+        debugln(" - [EMERGENCY] Mode deactivated!");
+    }
+    else if (apiOverrideContent == 1)
+    {
+        apiOverrideOff = true;
+        emergency = true;
+        debugln(" - [EMERGENCY] Mode activated!");
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - API Override Lights - [EMERGENCY] Mode activated!");
+        EEPROM.write(apiOverrideOffAdress, 1); // then set to 1 default - lights off
+        apiOverrideOff = true;
+        emergency = true;
+    }
+
+    // LEDs Mode
+    int modeContent = int(EEPROM.read(modeAdress));
+
+    debugln("[EEPROM] LEDs - Mode: " + String(modeContent));
+
+    if (modeContent >= 0 && modeContent <= 56)
+    {
+        led_mode = modeContent;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Mode - Out of range (0-56)!");
+        led_mode = 0;
+        EEPROM.write(modeAdress, led_mode); // then static
+    }
+
+    // LEDs Color 1
+    unsigned int colorContent1 = readColorEEPROM(false, 1);
+
+    debugln("[EEPROM] LEDs - Color 1: " + String(colorContent1));
+
+    if (colorContent1 >= 0 && colorContent1 <= 16777215)
+    {
+        led_color1 = colorContent1;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Color 1 - Out of range (0x0-0xFFFFFF)!");
+        led_color1 = 0;
+        EEPROM.write(color1_1Adress, led_color1); // then no color
+        EEPROM.write(color1_2Adress, led_color1); // then no color
+        EEPROM.write(color1_3Adress, led_color1); // then no color
+    }
+
+    // LEDs Color 2
+    unsigned int colorContent2 = readColorEEPROM(false, 2);
+
+    debugln("[EEPROM] LEDs - Color 2: " + String(colorContent2));
+
+    if (colorContent2 >= 0 && colorContent2 <= 16777215)
+    {
+        led_color2 = colorContent2;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Color 2 - Out of range (0x0-0xFFFFFF)!");
+        led_color2 = 0;
+        EEPROM.write(color2_1Adress, led_color2); // then no color
+        EEPROM.write(color2_2Adress, led_color2); // then no color
+        EEPROM.write(color2_3Adress, led_color2); // then no color
+    }
+
+    // LEDs Color 3
+    unsigned int colorContent3 = readColorEEPROM(false, 3);
+
+    debugln("[EEPROM] LEDs - Color 3: " + String(colorContent3));
+
+    if (colorContent3 >= 0 && colorContent3 <= 16777215)
+    {
+        led_color3 = colorContent3;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Color 3 - Out of range (0x0-0xFFFFFF)!");
+        led_color3 = 0;
+        EEPROM.write(color2_1Adress, led_color3); // then no color
+        EEPROM.write(color2_2Adress, led_color3); // then no color
+        EEPROM.write(color2_3Adress, led_color3); // then no color
+    }
+
+    // LEDs Brightness
+    int brtnsContent = int(EEPROM.read(brtnsAdress));
+
+    debugln("[EEPROM] LEDs - Brightness: " + String(brtnsContent));
+
+    if (brtnsContent >= 0 && brtnsContent <= 255)
+    {
+        led_brtns = brtnsContent;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Brightness - Out of range (0-255)!");
+        led_brtns = 0;
+        EEPROM.write(brtnsAdress, led_brtns); // then dark
+    }
+
+    sliderValues[4] = led_brtns;
+
+    // LEDs Speed
+    unsigned int speedContent = readSpeedEEPROM(false);
+
+    debugln("[EEPROM] LEDs - Speed: " + String(speedContent));
+
+    if (speedContent >= 0 && speedContent <= 65535)
+    {
+        led_speed = speedContent;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Speed - Out of range (0x0-0xFFFF)!");
+        led_speed = 10000;
+        writeSpeedEEPROM(led_speed, false);
+    }
+
+    sliderValues[5] = led_speed;
+
+    // UGLW Motor Restriction
+    int uglwMRESTContent = int(EEPROM.read(uglwMotorRestrictionAdress)); // read EEPROM
+
+    debugln("[EEPROM] UGLW Motor Restriction: " + String(uglwMRESTContent));
+
+    if (uglwMRESTContent == 0)
+    {
+        uglwMotorRestriction = false;
+    }
+    else if (uglwMRESTContent == 1)
+    {
+        uglwMotorRestriction = true;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - UGLW Motor Restriction");
+        EEPROM.write(uglwMotorRestrictionAdress, 1); // then set to 1 default uglw off on motor on
+        starMotorRestriction = true;
+    }
+
+    buttonStates[3] = uglwMotorRestriction;
+
+    // Battery Voltage Threshold
+    float batVoltThres;
+    EEPROM.get(batVoltThresAdress, batVoltThres); // read EEPROM
+
+    debugln("[EEPROM] Battery-Voltage Threshold: " + String(batVoltThres));
+
+    if (batVoltThres >= 10.0 && batVoltThres <= 15.0)
+    {
+        batteryThreshold = batVoltThres;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Battery-Voltage Threshold");
+        EEPROM.put(batVoltThresAdress, 12.0); // then set to 12
+        batteryThreshold = 12.0;
+    }
+
+    sliderValuesFloat[0] = batVoltThres;
+
+    // Battery Voltage Offset
+    float batVoltOs;
+    EEPROM.get(batVoltOffsetAdress, batVoltOs); // read EEPROM
+
+    debugln("[EEPROM] Battery-Voltage Offset: " + String(batVoltOs));
+
+    if (batVoltOs >= -5.0 && batVoltOs <= 5.0)
+    {
+        batVoltOffset = batVoltOs;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Battery-Voltage Offset");
+        EEPROM.put(batVoltOffsetAdress, 1.8);
+        batVoltOffset = 1.8;
+    }
+
+    sliderValuesFloat[1] = batVoltOffset;
+
+    // Favorite UGLW Mode
+    int favMode = EEPROM.read(favoriteModeAdress);
+
+    debugln("[EEPROM] Favorite UGLW Mode: " + String(favMode));
+
+    if (favMode >= 0 && favMode <= 56)
+    {
+        favoriteMode = favMode;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Mode - Out of range (0-56)!");
+        EEPROM.write(favoriteModeAdress, 0);
+        favoriteMode = 0;
+    }
+
+    // Favorite UGLW Color 1
+    unsigned int favColor1 = readColorEEPROM(true, 1);
+
+    debugln("[EEPROM] Favorite UGLW Color 1: " + String(favColor1));
+
+    if (favColor1 >= 0 && favColor1 <= 16777215)
+    {
+        favoriteColor1 = favColor1;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 1 - Out of range (0x0-0xFFFFFF)!");
+        writeColorEEPROM(0, true, 1U);
+        favoriteColor1 = 0;
+    }
+
+    // Favorite UGLW Color 2
+    unsigned int favColor2 = readColorEEPROM(true, 2);
+
+    debugln("[EEPROM] Favorite UGLW Color 2: " + String(favColor2));
+
+    if (favColor2 >= 0 && favColor2 <= 16777215)
+    {
+        favoriteColor2 = favColor2;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 2 - Out of range (0x0-0xFFFFFF)!");
+        writeColorEEPROM(0, true, 1U);
+        favoriteColor2 = 0;
+    }
+
+    // Favorite UGLW Color 3
+    unsigned int favColor3 = readColorEEPROM(true, 3);
+
+    debugln("[EEPROM] Favorite UGLW Color 3: " + String(favColor3));
+
+    if (favColor3 >= 0 && favColor3 <= 16777215)
+    {
+        favoriteColor3 = favColor3;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Color 3 - Out of range (0x0-0xFFFFFF)!");
+        writeColorEEPROM(0, true, 1U);
+        favoriteColor3 = 0;
+    }
+
+    // Favorite UGLW Brtns
+    int favBrtns = EEPROM.read(favoriteBrtnsAdress);
+
+    debugln("[EEPROM] Favorite UGLW Brightness: " + String(favBrtns));
+
+    if (favBrtns >= 0 && favBrtns <= 255)
+    {
+        favoriteBrtns = favBrtns;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Brightness - Out of range (0-255)!");
+        EEPROM.write(favoriteBrtnsAdress, 0);
+        favoriteBrtns = 0;
+    }
+
+    // Favorite UGLW Speed
+    unsigned int favSpeed = readSpeedEEPROM(true);
+
+    debugln("[EEPROM] Favorite UGLW Speed: " + String(favSpeed));
+
+    if (favSpeed >= 0 && favSpeed <= 65535)
+    {
+        favoriteSpeed = favSpeed;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Favorite Speed - Out of range (0x0-0xFFFF)!");
+        favoriteSpeed = 10000;
+        writeSpeedEEPROM(favoriteSpeed, true);
+    }
+
+    // Favorite UGLW FadeSize
+    uint8_t favfs = (uint8_t)EEPROM.read(favoriteFadeSizeAdress);
+
+    debugln("[EEPROM] Favorite UGLW FadeSize: " + String(favfs));
+
+    if (favfs >= 1 && favfs <= 4)
+    {
+        favoriteFadeSize = favfs;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - Favorite FadeSize - Out of range (1-4)!");
+        favoriteFadeSize = 2;
+        EEPROM.write(favoriteFadeSizeAdress, favoriteFadeSize);
+    }
+
+    // UGLW TFL-REST.
+    int uglwTFL = EEPROM.read(uglwTFLRestrictionAdress); // read EEPROM
+
+    debugln("[EEPROM] UGLW TFL Restriction: " + String(uglwTFL));
+
+    if (uglwTFL == 1)
+        uglwTFLRestriction = true;
+    else if (uglwTFL == 0)
+        uglwTFLRestriction = false;
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - UGLW TFL Restriction");
+        EEPROM.write(uglwTFLRestrictionAdress, 1);
+        uglwTFLRestriction = true;
+    }
+
+    buttonStates[4] = uglwTFLRestriction;
+
+    // UGLW Transition Coefficient
+    float transCoef;
+    EEPROM.get(transitionCoefficientAdress, transCoef); // read EEPROM
+
+    debugln("[EEPROM] Transition Coefficient: " + String(transCoef));
+
+    if (transCoef >= -5.0 && transCoef <= 5.0)
+    {
+        transitionCoefficient = transCoef;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Transition Coefficient - Setting to 1.18");
+        transCoef = 1.18;
+        EEPROM.put(transitionCoefficientAdress, transCoef);
+    }
+
+    sliderValuesFloat[2] = transCoef;
+
+    // Batvolt Motor Offset
+    float batVoltOfMo;
+    EEPROM.get(batVoltOffsetMotorAdress, batVoltOfMo); // read EEPROM
+
+    debugln("[EEPROM] Battery-Voltage Motor Offset: " + String(batVoltOfMo));
+
+    if (batVoltOfMo >= -5.0 && batVoltOfMo <= 5.0)
+    {
+        motorVoltOffset = batVoltOfMo;
+    }
+    else // if no logic state
+    {
+        debugln("[EEPROM] Reading failed - Battery-Voltage Motor Offset");
+        motorVoltOffset = 0.0;
+        EEPROM.put(batVoltOffsetMotorAdress, motorVoltOffset);
+    }
+
+    sliderValuesFloat[3] = motorVoltOffset;
+
+    // UGLW FadeSize
+    uint8_t fadeSizeContent = EEPROM.read(fadeSizeAdress);
+
+    debugln("[EEPROM] LEDs - FadeSize: " + String(fadeSizeContent));
+
+    if (fadeSizeContent >= 1 && fadeSizeContent <= 4)
+    {
+        fadeSize = fadeSizeContent;
+    }
+    else
+    {
+        debugln("[EEPROM] Reading was no valid option: LEDs - FadeSize - Out of range (1-4)!");
+        fadeSize = 2;
+        EEPROM.write(fadeSizeAdress, fadeSize);
+    }
+
+    sliderValues[6] = fadeSize;
+
+    EEPROM.commit();
+
+    debugln("[EEPROM] Extraction completed!");
 }
 
 void writeColorEEPROM(unsigned int key, bool favorite, unsigned int colorType)
 {
-  int lowbit = key & 255;
-  int midbit = (key >> 8) & 255;
-  int highbit = (key >> 16) & 255;
+    int lowbit = key & 255;
+    int midbit = (key >> 8) & 255;
+    int highbit = (key >> 16) & 255;
 
-  /*debugln("\nKEY DEC: " + String(key));
-  debugln("KEY HEX: " + String(key, HEX));
-  debugln("KEY BIN: " + String(key, BIN));
-  debugln("LOWBIT: " + String(lowbit, BIN));
-  debugln("MIDBIT: " + String(midbit, BIN));
-  debugln("HIGHBIT: " + String(highbit, BIN));*/
+    /*debugln("\nKEY DEC: " + String(key));
+    debugln("KEY HEX: " + String(key, HEX));
+    debugln("KEY BIN: " + String(key, BIN));
+    debugln("LOWBIT: " + String(lowbit, BIN));
+    debugln("MIDBIT: " + String(midbit, BIN));
+    debugln("HIGHBIT: " + String(highbit, BIN));*/
 
-  if (colorType == 1)
-  {
-    EEPROM.write(favorite ? favoriteColorAdress1_1 : color1_1Adress, lowbit);  // Blue Bit
-    EEPROM.write(favorite ? favoriteColorAdress1_2 : color1_2Adress, midbit);  // Green Bit
-    EEPROM.write(favorite ? favoriteColorAdress1_3 : color1_3Adress, highbit); // Red Bit
-  }
-  else if (colorType == 2)
-  {
-    EEPROM.write(favorite ? favoriteColorAdress2_1 : color2_1Adress, lowbit);  // Blue Bit
-    EEPROM.write(favorite ? favoriteColorAdress2_2 : color2_2Adress, midbit);  // Green Bit
-    EEPROM.write(favorite ? favoriteColorAdress2_3 : color2_3Adress, highbit); // Red Bit
-  }
-  else if (colorType == 3)
-  {
-    EEPROM.write(favorite ? favoriteColorAdress3_1 : color3_1Adress, lowbit);  // Blue Bit
-    EEPROM.write(favorite ? favoriteColorAdress3_2 : color3_2Adress, midbit);  // Green Bit
-    EEPROM.write(favorite ? favoriteColorAdress3_3 : color3_3Adress, highbit); // Red Bit
-  }
-  EEPROM.commit();
+    if (colorType == 1)
+    {
+        EEPROM.write(favorite ? favoriteColorAdress1_1 : color1_1Adress, lowbit);  // Blue Bit
+        EEPROM.write(favorite ? favoriteColorAdress1_2 : color1_2Adress, midbit);  // Green Bit
+        EEPROM.write(favorite ? favoriteColorAdress1_3 : color1_3Adress, highbit); // Red Bit
+    }
+    else if (colorType == 2)
+    {
+        EEPROM.write(favorite ? favoriteColorAdress2_1 : color2_1Adress, lowbit);  // Blue Bit
+        EEPROM.write(favorite ? favoriteColorAdress2_2 : color2_2Adress, midbit);  // Green Bit
+        EEPROM.write(favorite ? favoriteColorAdress2_3 : color2_3Adress, highbit); // Red Bit
+    }
+    else if (colorType == 3)
+    {
+        EEPROM.write(favorite ? favoriteColorAdress3_1 : color3_1Adress, lowbit);  // Blue Bit
+        EEPROM.write(favorite ? favoriteColorAdress3_2 : color3_2Adress, midbit);  // Green Bit
+        EEPROM.write(favorite ? favoriteColorAdress3_3 : color3_3Adress, highbit); // Red Bit
+    }
+    EEPROM.commit();
 }
 
 unsigned int readColorEEPROM(bool favorite, unsigned int colorType)
 {
-  int key;
+    int key;
 
-  if (colorType == 1)
-  {
-    key = EEPROM.read(favorite ? favoriteColorAdress1_3 : color1_3Adress) << 8;         // Red Bit
-    key = (key + EEPROM.read(favorite ? favoriteColorAdress1_2 : color1_2Adress)) << 8; // Green Bit
-    key += EEPROM.read(favorite ? favoriteColorAdress1_1 : color1_1Adress);             // Blue Bit
-  }
-  else if (colorType == 2)
-  {
-    key = EEPROM.read(favorite ? favoriteColorAdress2_3 : color2_3Adress) << 8;         // Red Bit
-    key = (key + EEPROM.read(favorite ? favoriteColorAdress2_2 : color2_2Adress)) << 8; // Green Bit
-    key += EEPROM.read(favorite ? favoriteColorAdress2_1 : color2_1Adress);             // Blue Bit
-  }
-  else if (colorType == 3)
-  {
-    key = EEPROM.read(favorite ? favoriteColorAdress3_3 : color3_3Adress) << 8;         // Red Bit
-    key = (key + EEPROM.read(favorite ? favoriteColorAdress3_2 : color3_2Adress)) << 8; // Green Bit
-    key += EEPROM.read(favorite ? favoriteColorAdress3_1 : color3_1Adress);             // Blue Bit
-  }
+    if (colorType == 1)
+    {
+        key = EEPROM.read(favorite ? favoriteColorAdress1_3 : color1_3Adress) << 8;         // Red Bit
+        key = (key + EEPROM.read(favorite ? favoriteColorAdress1_2 : color1_2Adress)) << 8; // Green Bit
+        key += EEPROM.read(favorite ? favoriteColorAdress1_1 : color1_1Adress);             // Blue Bit
+    }
+    else if (colorType == 2)
+    {
+        key = EEPROM.read(favorite ? favoriteColorAdress2_3 : color2_3Adress) << 8;         // Red Bit
+        key = (key + EEPROM.read(favorite ? favoriteColorAdress2_2 : color2_2Adress)) << 8; // Green Bit
+        key += EEPROM.read(favorite ? favoriteColorAdress2_1 : color2_1Adress);             // Blue Bit
+    }
+    else if (colorType == 3)
+    {
+        key = EEPROM.read(favorite ? favoriteColorAdress3_3 : color3_3Adress) << 8;         // Red Bit
+        key = (key + EEPROM.read(favorite ? favoriteColorAdress3_2 : color3_2Adress)) << 8; // Green Bit
+        key += EEPROM.read(favorite ? favoriteColorAdress3_1 : color3_1Adress);             // Blue Bit
+    }
 
-  /*debugln("\nKEY DEC: " + String(key));
-  debugln("KEY HEX: " + String(key, HEX));
-  debugln("KEY BIN: " + String(key, BIN));*/
+    /*debugln("\nKEY DEC: " + String(key));
+    debugln("KEY HEX: " + String(key, HEX));
+    debugln("KEY BIN: " + String(key, BIN));*/
 
-  return (unsigned int)key;
+    return (unsigned int)key;
 }
 
 void writeSpeedEEPROM(unsigned int key, bool favorite)
 {
-  int lowbit = key & 255;
-  int highbit = (key >> 8) & 255;
+    int lowbit = key & 255;
+    int highbit = (key >> 8) & 255;
 
-  /*debugln("\nKEY DEC: " + String(key));
-  debugln("KEY HEX: " + String(key, HEX));
-  debugln("KEY BIN: " + String(key, BIN));
-  debugln("LOWBIT: " + String(lowbit, BIN));
-  debugln("HIGHBIT: " + String(highbit, BIN));*/
+    /*debugln("\nKEY DEC: " + String(key));
+    debugln("KEY HEX: " + String(key, HEX));
+    debugln("KEY BIN: " + String(key, BIN));
+    debugln("LOWBIT: " + String(lowbit, BIN));
+    debugln("HIGHBIT: " + String(highbit, BIN));*/
 
-  EEPROM.write(favorite ? favoriteSpeedAdress1 : speed1Adress, lowbit);
-  EEPROM.write(favorite ? favoriteSpeedAdress2 : speed2Adress, highbit);
-  EEPROM.commit();
+    EEPROM.write(favorite ? favoriteSpeedAdress1 : speed1Adress, lowbit);
+    EEPROM.write(favorite ? favoriteSpeedAdress2 : speed2Adress, highbit);
+    EEPROM.commit();
 }
 
 unsigned int readSpeedEEPROM(bool favorite)
 {
-  int key = EEPROM.read(favorite ? favoriteSpeedAdress2 : speed2Adress) << 8;
-  key += EEPROM.read(favorite ? favoriteSpeedAdress1 : speed1Adress);
+    int key = EEPROM.read(favorite ? favoriteSpeedAdress2 : speed2Adress) << 8;
+    key += EEPROM.read(favorite ? favoriteSpeedAdress1 : speed1Adress);
 
-  /*debugln("\nKEY DEC: " + String(key));
-  debugln("KEY HEX: " + String(key, HEX));
-  debugln("KEY BIN: " + String(key, BIN));*/
+    /*debugln("\nKEY DEC: " + String(key));
+    debugln("KEY HEX: " + String(key, HEX));
+    debugln("KEY BIN: " + String(key, BIN));*/
 
-  return (unsigned int)key;
+    return (unsigned int)key;
 }
 
 // AsyncWebServer
 void server_init()
 {
-  assignServerHandlers();
-  server.begin();
-  debugln("\n[HTTP] Webserver started!");
+    assignServerHandlers();
+    server.begin();
+    debugln("\n[HTTP] Webserver started!");
 }
 
 String processor(const String &var)
 {
-  if (var == "STARSTATETEXT")
-  {
-    return readStarState();
-  }
-  else if (var == "TFLSTATETEXT")
-  {
-    return readTFLState();
-  }
-  else if (var == "BUTTONPLACEHOLDER0")
-  {
-    String buttons = "";
-    buttons += "<h4>Fade</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button1\" " + outputState(1) + "><span class=\"btnslider\"></span></label>";
-    return buttons;
-  }
-  else if (var == "BUTTONPLACEHOLDER1")
-  {
-    String buttons = "";
-    buttons += "<h4>Motor Restriction Star</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button2\" " + outputState(2) + "><span class=\"btnslider\"></span></label>";
-    return buttons;
-  }
-  else if (var == "BUTTONPLACEHOLDER2")
-  {
-    String buttons = "";
-    buttons += "<h4>Motor Restriction UGLW</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button3\" " + outputState(3) + "><span class=\"btnslider\"></span></label>";
-    return buttons;
-  }
-  else if (var == "BUTTONPLACEHOLDER3")
-  {
-    String buttons = "";
-    buttons += "<h4>TFL Restriction UGLW</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button4\" " + outputState(4) + "><span class=\"btnslider\"></span></label>";
-    return buttons;
-  }
-  else if (var == "SLIDERTEXT0")
-  {
-    switch (sliderValues[0])
+    if (var == "STARSTATETEXT")
     {
-    case 1:
-      return "Star - Automatic";
-      break;
-    case 2:
-      return "Star - On";
-      break;
-    case 3:
-      return "Star - Off";
-      break;
+        return readStarState();
+    }
+    else if (var == "TFLSTATETEXT")
+    {
+        return readTFLState();
+    }
+    else if (var == "BUTTONPLACEHOLDER0")
+    {
+        String buttons = "";
+        buttons += "<h4>Fade</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button1\" " + outputState(1) + "><span class=\"btnslider\"></span></label>";
+        return buttons;
+    }
+    else if (var == "BUTTONPLACEHOLDER1")
+    {
+        String buttons = "";
+        buttons += "<h4>Motor Restriction Star</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button2\" " + outputState(2) + "><span class=\"btnslider\"></span></label>";
+        return buttons;
+    }
+    else if (var == "BUTTONPLACEHOLDER2")
+    {
+        String buttons = "";
+        buttons += "<h4>Motor Restriction UGLW</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button3\" " + outputState(3) + "><span class=\"btnslider\"></span></label>";
+        return buttons;
+    }
+    else if (var == "BUTTONPLACEHOLDER3")
+    {
+        String buttons = "";
+        buttons += "<h4>TFL Restriction UGLW</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"updateButton(this)\" id=\"button4\" " + outputState(4) + "><span class=\"btnslider\"></span></label>";
+        return buttons;
+    }
+    else if (var == "SLIDERTEXT0")
+    {
+        switch (sliderValues[0])
+        {
+        case 1:
+            return "Star - Automatic";
+            break;
+        case 2:
+            return "Star - On";
+            break;
+        case 3:
+            return "Star - Off";
+            break;
 
-    default:
-      break;
+        default:
+            break;
+        }
     }
-  }
-  else if (var == "SLIDERVALUE0")
-  {
-    return String(sliderValues[0]);
-  }
-  else if (var == "SLIDERTEXT1")
-  {
-    switch (sliderValues[1])
+    else if (var == "SLIDERVALUE0")
     {
-    case 1:
-      return "TFL - Automatic";
-      break;
-    case 2:
-      return "TFL - On";
-      break;
-    case 3:
-      return "TFL - Off";
-      break;
+        return String(sliderValues[0]);
+    }
+    else if (var == "SLIDERTEXT1")
+    {
+        switch (sliderValues[1])
+        {
+        case 1:
+            return "TFL - Automatic";
+            break;
+        case 2:
+            return "TFL - On";
+            break;
+        case 3:
+            return "TFL - Off";
+            break;
 
-    default:
-      break;
+        default:
+            break;
+        }
     }
-  }
-  else if (var == "SLIDERVALUE1")
-  {
-    return String(sliderValues[1]);
-  }
-  else if (var == "SLIDERTEXT2")
-  {
-    switch (sliderValues[2])
+    else if (var == "SLIDERVALUE1")
     {
-    case 1:
-      return "Star - Fade Slow";
-      break;
-    case 2:
-      return "Star - Fade Normal";
-      break;
-    case 3:
-      return "Star - Fade Fast";
-      break;
-    default:
-      break;
+        return String(sliderValues[1]);
     }
-  }
-  else if (var == "SLIDERVALUE2")
-  {
-    return String(sliderValues[2]);
-  }
-  else if (var == "SLIDERTEXT3")
-  {
-    switch (sliderValues[3])
+    else if (var == "SLIDERTEXT2")
     {
-    case 1:
-      return "TFL - Fade Slow";
-      break;
-    case 2:
-      return "TFL - Fade Normal";
-      break;
-    case 3:
-      return "TFL - Fade Fast";
-      break;
-    default:
-      break;
+        switch (sliderValues[2])
+        {
+        case 1:
+            return "Star - Fade Slow";
+            break;
+        case 2:
+            return "Star - Fade Normal";
+            break;
+        case 3:
+            return "Star - Fade Fast";
+            break;
+        default:
+            break;
+        }
     }
-  }
-  else if (var == "SLIDERVALUE3")
-  {
-    return String(sliderValues[3]);
-  }
-  else if (var == "SLIDERTEXT4")
-  {
-    String retval = "Brightness - " + String(sliderValues[4]);
-    return retval;
-  }
-  else if (var == "SLIDERVALUE4")
-  {
-    return String(sliderValues[4]);
-  }
-  else if (var == "SLIDERTEXT5")
-  {
-    String retval = "Speed - " + String(sliderValues[5]);
-    return retval;
-  }
-  else if (var == "SLIDERVALUE5")
-  {
-    return String(sliderValues[5]);
-  }
-  else if (var == "INFOTEXT1")
-  {
-    String retval = "";
-    if (connected_clients[2])
-      retval += "CC";
-    else
-      retval += "--";
-    retval += " | ";
-    if (connected_clients[0])
-      retval += "SE";
-    else
-      retval += "--";
-    retval += " | ";
-    if (connected_clients[1])
-      retval += "SG";
-    else
-      retval += "--";
-    return retval;
-  }
-  else if (var == "INFOTEXT2")
-  {
-    return "Version - " + String(VERSION);
-  }
-  else if (var == "INFOTEXT3")
-  {
-    return "Battery-Voltage - " + String(batteryVoltage) + " Volt";
-  }
-  else if (var == "SLIDERTEXT6")
-  {
-    String retval = "Threshold - " + String(sliderValuesFloat[0]) + " Volt";
-    return retval;
-  }
-  else if (var == "SLIDERVALUE6")
-  {
-    return String(sliderValuesFloat[0]);
-  }
-  else if (var == "SLIDERTEXT7")
-  {
-    String retval = "Calibration Offset - " + String(sliderValuesFloat[1]) + " Volt";
-    return retval;
-  }
-  else if (var == "SLIDERTEXT8")
-  {
-    String retval = "Favorite Mode - " + String(favoriteMode);
-    return retval;
-  }
-  else if (var == "SLIDERTEXT9")
-  {
-    String retval = "Motor Offset - " + String(sliderValuesFloat[3]) + " Volt";
-    return retval;
-  }
-  else if (var == "SLIDERTEXT10")
-  {
-    String retval = "Transition Coefficient - " + String(sliderValuesFloat[2]);
-    return retval;
-  }
-  else if (var == "SLIDERTEXT11")
-  {
-    switch (sliderValues[6])
+    else if (var == "SLIDERVALUE2")
     {
-    case 1:
-      return "Fadesize - Small";
-      break;
-    case 2:
-      return "Fadesize - Medium";
-      break;
-    case 3:
-      return "Fadesize - Large";
-      break;
-    case 4:
-      return "Fadesize - XLarge";
-      break;
+        return String(sliderValues[2]);
+    }
+    else if (var == "SLIDERTEXT3")
+    {
+        switch (sliderValues[3])
+        {
+        case 1:
+            return "TFL - Fade Slow";
+            break;
+        case 2:
+            return "TFL - Fade Normal";
+            break;
+        case 3:
+            return "TFL - Fade Fast";
+            break;
+        default:
+            break;
+        }
+    }
+    else if (var == "SLIDERVALUE3")
+    {
+        return String(sliderValues[3]);
+    }
+    else if (var == "SLIDERTEXT4")
+    {
+        String retval = "Brightness - " + String(sliderValues[4]);
+        return retval;
+    }
+    else if (var == "SLIDERVALUE4")
+    {
+        return String(sliderValues[4]);
+    }
+    else if (var == "SLIDERTEXT5")
+    {
+        String retval = "Speed - " + String(sliderValues[5]);
+        return retval;
+    }
+    else if (var == "SLIDERVALUE5")
+    {
+        return String(sliderValues[5]);
+    }
+    else if (var == "INFOTEXT1")
+    {
+        String retval = "";
+        if (connected_clients[2])
+            retval += "CC";
+        else
+            retval += "--";
+        retval += " | ";
+        if (connected_clients[0])
+            retval += "SE";
+        else
+            retval += "--";
+        retval += " | ";
+        if (connected_clients[1])
+            retval += "SG";
+        else
+            retval += "--";
+        return retval;
+    }
+    else if (var == "INFOTEXT2")
+    {
+        return "Version - " + String(VERSION);
+    }
+    else if (var == "INFOTEXT3")
+    {
+        return "Battery-Voltage - " + String(batteryVoltage) + " Volt";
+    }
+    else if (var == "SLIDERTEXT6")
+    {
+        String retval = "Threshold - " + String(sliderValuesFloat[0]) + " Volt";
+        return retval;
+    }
+    else if (var == "SLIDERVALUE6")
+    {
+        return String(sliderValuesFloat[0]);
+    }
+    else if (var == "SLIDERTEXT7")
+    {
+        String retval = "Calibration Offset - " + String(sliderValuesFloat[1]) + " Volt";
+        return retval;
+    }
+    else if (var == "SLIDERTEXT8")
+    {
+        String retval = "Favorite Mode - " + String(favoriteMode);
+        return retval;
+    }
+    else if (var == "SLIDERTEXT9")
+    {
+        String retval = "Motor Offset - " + String(sliderValuesFloat[3]) + " Volt";
+        return retval;
+    }
+    else if (var == "SLIDERTEXT10")
+    {
+        String retval = "Transition Coefficient - " + String(sliderValuesFloat[2]);
+        return retval;
+    }
+    else if (var == "SLIDERTEXT11")
+    {
+        switch (sliderValues[6])
+        {
+        case 1:
+            return "Fadesize - Small";
+            break;
+        case 2:
+            return "Fadesize - Medium";
+            break;
+        case 3:
+            return "Fadesize - Large";
+            break;
+        case 4:
+            return "Fadesize - XLarge";
+            break;
 
-    default:
-      break;
+        default:
+            break;
+        }
     }
-  }
-  else if (var == "SLIDERVALUE11")
-  {
-    return String(sliderValues[6]);
-  }
-  else if (var == "UGLWSELMODETEXT")
-  {
-    return "Selected Mode - " + uglwSelectedModeRqst();
-  }
+    else if (var == "SLIDERVALUE11")
+    {
+        return String(sliderValues[6]);
+    }
+    else if (var == "UGLWSELMODETEXT")
+    {
+        return "Selected Mode - " + uglwSelectedModeRqst();
+    }
 
-  return String();
+    return String();
 }
 
 String uglwSelectedModeRqst()
 {
-  String retval;
-  switch (led_mode)
-  {
-  case 0:
-    retval = "Static";
-    break;
-  case 1:
-    retval = "Blink";
-    break;
-  case 2:
-    retval = "Breath";
-    break;
-  case 3:
-    retval = "Color Wipe";
-    break;
-  case 7:
-    retval = "Color Wipe Random";
-    break;
-  case 8:
-    retval = "Random Color";
-    break;
-  case 9:
-    retval = "Single Dynamic";
-    break;
-  case 10:
-    retval = "Multi Dynamic";
-    break;
-  case 11:
-    retval = "Rainbow Even";
-    break;
-  case 12:
-    retval = "Rainbow Cycle";
-    break;
-  case 13:
-    retval = "Scan";
-    break;
-  case 14:
-    retval = "Dual Scan";
-    break;
-  case 15:
-    retval = "Breath Fast";
-    break;
-  case 16:
-    retval = "Theater Chase";
-    break;
-  case 17:
-    retval = "Theater Chase Rainbow";
-    break;
-  case 18:
-    retval = "Running Lights";
-    break;
-  case 19:
-    retval = "Twinkle";
-    break;
-  case 20:
-    retval = "Twinkle Random";
-    break;
-  case 21:
-    retval = "Twinkle Fade";
-    break;
-  case 22:
-    retval = "Twinkle Fade Random";
-    break;
-  case 23:
-    retval = "Sparkle";
-    break;
-  case 26:
-    retval = "Strobe";
-    break;
-  case 27:
-    retval = "Strobe Rainbow";
-    break;
-  case 29:
-    retval = "Blink Rainbow";
-    break;
-  case 32:
-    retval = "Chase Random";
-    break;
-  case 33:
-    retval = "Chase Rainbow";
-    break;
-  case 38:
-    retval = "Chase Blackout Rainbow";
-    break;
-  case 40:
-    retval = "Running Color";
-    break;
-  case 41:
-    retval = "Running Red-Blue";
-    break;
-  case 42:
-    retval = "Running Random";
-    break;
-  case 43:
-    retval = "Larson Scanner";
-    break;
-  case 44:
-    retval = "Comet";
-    break;
-  case 45:
-    retval = "Fireworks";
-    break;
-  case 46:
-    retval = "Fireworks Random";
-    break;
-  case 47:
-    retval = "Merry Christmas";
-    break;
-  case 49:
-    retval = "Fire Flicker";
-    break;
-  case 51:
-    retval = "Circus Combustus";
-    break;
-  case 52:
-    retval = "Halloween";
-    break;
-  case 55:
-    retval = "TwinkleFox";
-    break;
-  case 56:
-    retval = "Rain";
-    break;
+    String retval;
+    switch (led_mode)
+    {
+    case 0:
+        retval = "Static";
+        break;
+    case 1:
+        retval = "Blink";
+        break;
+    case 2:
+        retval = "Breath";
+        break;
+    case 3:
+        retval = "Color Wipe";
+        break;
+    case 7:
+        retval = "Color Wipe Random";
+        break;
+    case 8:
+        retval = "Random Color";
+        break;
+    case 9:
+        retval = "Single Dynamic";
+        break;
+    case 10:
+        retval = "Multi Dynamic";
+        break;
+    case 11:
+        retval = "Rainbow Even";
+        break;
+    case 12:
+        retval = "Rainbow Cycle";
+        break;
+    case 13:
+        retval = "Scan";
+        break;
+    case 14:
+        retval = "Dual Scan";
+        break;
+    case 15:
+        retval = "Breath Fast";
+        break;
+    case 16:
+        retval = "Theater Chase";
+        break;
+    case 17:
+        retval = "Theater Chase Rainbow";
+        break;
+    case 18:
+        retval = "Running Lights";
+        break;
+    case 19:
+        retval = "Twinkle";
+        break;
+    case 20:
+        retval = "Twinkle Random";
+        break;
+    case 21:
+        retval = "Twinkle Fade";
+        break;
+    case 22:
+        retval = "Twinkle Fade Random";
+        break;
+    case 23:
+        retval = "Sparkle";
+        break;
+    case 26:
+        retval = "Strobe";
+        break;
+    case 27:
+        retval = "Strobe Rainbow";
+        break;
+    case 29:
+        retval = "Blink Rainbow";
+        break;
+    case 32:
+        retval = "Chase Random";
+        break;
+    case 33:
+        retval = "Chase Rainbow";
+        break;
+    case 38:
+        retval = "Chase Blackout Rainbow";
+        break;
+    case 40:
+        retval = "Running Color";
+        break;
+    case 41:
+        retval = "Running Red-Blue";
+        break;
+    case 42:
+        retval = "Running Random";
+        break;
+    case 43:
+        retval = "Larson Scanner";
+        break;
+    case 44:
+        retval = "Comet";
+        break;
+    case 45:
+        retval = "Fireworks";
+        break;
+    case 46:
+        retval = "Fireworks Random";
+        break;
+    case 47:
+        retval = "Merry Christmas";
+        break;
+    case 49:
+        retval = "Fire Flicker";
+        break;
+    case 51:
+        retval = "Circus Combustus";
+        break;
+    case 52:
+        retval = "Halloween";
+        break;
+    case 55:
+        retval = "TwinkleFox";
+        break;
+    case 56:
+        retval = "Rain";
+        break;
 
-  default:
-    retval = "nan";
-    break;
-  }
-  return retval;
+    default:
+        retval = "nan";
+        break;
+    }
+    return retval;
 }
 
 String outputState(int key)
 {
-  if (buttonStates[key])
-    return "checked";
-  else
-    return "";
+    if (buttonStates[key])
+        return "checked";
+    else
+        return "";
 }
 
 void assignServerHandlers()
 {
-  // Route for root / web page
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/html", index_html, processor); });
+    // Route for root / web page
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+              { request->send_P(200, "text/html", index_html, processor); });
 
-  // Send a GET request to <ESP_IP>/update?button=<inputMessage1>&state=<inputMessage2>
-  server.on("/button", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    // Send a GET request to <ESP_IP>/update?button=<inputMessage1>&state=<inputMessage2>
+    server.on("/button", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String btnID;
               String btnState;
               // GET input1 value on <ESP_IP>/update?button=<inputMessage1>&state=<inputMessage2>
@@ -2248,8 +2252,8 @@ void assignServerHandlers()
               request->send(200, "text/plain", "OK");
               interpretButton(btnID.toInt()); });
 
-  server.on("/slider", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/slider", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String sliderID = "";
               String sliderValue = "";
               // GET input1 value on <ESP_IP>/slider?value=<inputMessage>
@@ -2298,8 +2302,8 @@ void assignServerHandlers()
               request->send(200, "text/plain", "OK");
               interpretSlider(sliderID.toInt()); });
 
-  server.on("/momentaryButton", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/momentaryButton", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String btnID;
               String btnState;
               if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_2))
@@ -2320,22 +2324,22 @@ void assignServerHandlers()
               request->send(200, "text/plain", "OK");
               interpretButton(btnID.toInt()); });
 
-  server.on("/starStateText", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/plain", readStarState().c_str()); });
+    server.on("/starStateText", HTTP_GET, [](AsyncWebServerRequest *request)
+              { request->send_P(200, "text/plain", readStarState().c_str()); });
 
-  server.on("/tflStateText", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send_P(200, "text/plain", readTFLState().c_str()); });
+    server.on("/tflStateText", HTTP_GET, [](AsyncWebServerRequest *request)
+              { request->send_P(200, "text/plain", readTFLState().c_str()); });
 
-  server.on("/btnstate", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/btnstate", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               if (request->hasParam(PARAM_INPUT_1))
               {
                 String btnID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6));
                 request->send_P(200, "text/plain", readWebBtn(btnID.toInt()).c_str());
               } });
 
-  server.on("/sldrstate", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/sldrstate", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               if (request->hasParam(PARAM_INPUT_1))
               {
                 String sliderID;
@@ -2346,8 +2350,8 @@ void assignServerHandlers()
                 request->send_P(200, "text/plain", readWebSldr(sliderID.toInt()).c_str());
               } });
 
-  server.on("/dropdown", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/dropdown", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_3))
               {
                 unsigned int dropdownID = request->getParam(PARAM_INPUT_1)->value().toInt();
@@ -2357,8 +2361,8 @@ void assignServerHandlers()
               }
               request->send(200, "text/plain", "OK"); });
 
-  server.on("/infoText1", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/infoText1", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String retval = "";
               if (connected_clients[2])
                 retval += "CC";
@@ -2376,1358 +2380,1383 @@ void assignServerHandlers()
                 retval += "--";
               request->send_P(200, "text/plain", retval.c_str()); });
 
-  server.on("/infoText3", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/infoText3", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String retval = "Battery-Voltage - " + String(batteryVoltage) + " Volt";
               request->send_P(200, "text/plain", retval.c_str()); });
 
-  server.on("/batVoltOffset", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/batVoltOffset", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String retval = "Calibration Offset - " + String(batVoltOffset) + " Volt";
               request->send_P(200, "text/plain", retval.c_str()); });
 
-  server.on("/favoriteUGLWMode", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/favoriteUGLWMode", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String retval = "Favorite Mode - " + String(favoriteMode);
               request->send_P(200, "text/plain", retval.c_str()); });
 
-  server.on("/batVoltOffsetMotor", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/batVoltOffsetMotor", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String retval = "Motor Offset - " + String(motorVoltOffset) + " Volt";
               request->send_P(200, "text/plain", retval.c_str()); });
 
-  server.on("/transCoef", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/transCoef", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String retval = "Transition Coefficient - " + String(transitionCoefficient);
               request->send_P(200, "text/plain", retval.c_str()); });
 
-  server.on("/uglwSelMode", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
+    server.on("/uglwSelMode", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
               String retval = "Selected Mode - " + uglwSelectedModeRqst();
               request->send_P(200, "text/plain", retval.c_str()); });
 }
 
 String readStarState()
 {
-  String retval;
-  if (apiOverrideOff)
-    retval = "Star - BLOCKED";
-  else if (batteryEmergency)
-    retval = "Star - BAT LOW";
-  else if (strobe || strobeShort)
-    retval = "Star - Strobing";
-  else if (ledcRead(0) > 0 && ledcRead(0) < 1023)
-    retval = "Star - Fading";
-  else if (ledcRead(0) == 0)
-    retval = "Star - OFF";
-  else if (ledcRead(0) >= 1023)
-    retval = "Star - ON";
-  else
-    retval = "Star - nan";
-  return retval;
+    String retval;
+    if (apiOverrideOff)
+        retval = "Star - BLOCKED";
+    else if (batteryEmergency)
+        retval = "Star - BAT LOW";
+    else if (strobe || strobeShort)
+        retval = "Star - Strobing";
+    else if (ledcRead(0) > 0 && ledcRead(0) < 1023)
+        retval = "Star - Fading";
+    else if (ledcRead(0) == 0)
+        retval = "Star - OFF";
+    else if (ledcRead(0) >= 1023)
+        retval = "Star - ON";
+    else
+        retval = "Star - nan";
+    return retval;
 }
 
 String readTFLState()
 {
-  String retval;
-  if (apiOverrideOff)
-    retval = "TFL - BLOCKED";
-  else if (batteryEmergency)
-    retval = "TFL - BAT LOW";
-  else if (strobe || strobeShort)
-    retval = "TFL - Strobing";
-  else if ((ledcRead(1) > 0 && ledcRead(1) < 1023 && motorRunning) || (ledcRead(1) > 0 && ledcRead(1) < tflDimTreshold && !motorRunning) || (ledcRead(1) > tflDimTreshold && !motorRunning))
-    retval = "TFL - Fading";
-  else if (ledcRead(1) == 0)
-    retval = "TFL - OFF";
-  else if ((ledcRead(1) >= 1023 && motorRunning) || (ledcRead(1) == tflDimTreshold && !motorRunning))
-    retval = "TFL - ON";
-  else
-    retval = "TFL - nan";
-  return retval;
+    String retval;
+    if (apiOverrideOff)
+        retval = "TFL - BLOCKED";
+    else if (batteryEmergency)
+        retval = "TFL - BAT LOW";
+    else if (strobe || strobeShort)
+        retval = "TFL - Strobing";
+    else if ((ledcRead(1) > 0 && ledcRead(1) < 1023 && motorRunning) || (ledcRead(1) > 0 && ledcRead(1) < tflDimTreshold && !motorRunning) || (ledcRead(1) > tflDimTreshold && !motorRunning))
+        retval = "TFL - Fading";
+    else if (ledcRead(1) == 0)
+        retval = "TFL - OFF";
+    else if ((ledcRead(1) >= 1023 && motorRunning) || (ledcRead(1) == tflDimTreshold && !motorRunning))
+        retval = "TFL - ON";
+    else
+        retval = "TFL - nan";
+    return retval;
 }
 
 String readWebBtn(int id)
 {
-  if (buttonStates[id])
-    return "true";
-  else
-    return "false";
+    if (buttonStates[id])
+        return "true";
+    else
+        return "false";
 }
 
 String readWebSldr(int id)
 {
-  if (id == 6)
-    return String(sliderValuesFloat[id - 6]); // Floats
-  else if (id == 11)
-  {
-    return String(sliderValues[6]); // FadeSize
-  }
-  else
-    return String(sliderValues[id]); // Ints
+    if (id == 6)
+        return String(sliderValuesFloat[id - 6]); // Floats
+    else if (id == 11)
+    {
+        return String(sliderValues[6]); // FadeSize
+    }
+    else
+        return String(sliderValues[id]); // Ints
 }
 
 void interpretSlider(int id)
 {
-  if (id == 0) // *** STAR SLIDER ***
-  {
-    switch (sliderValues[id])
+    if (id == 0) // *** STAR SLIDER ***
     {
-    case 1:                                   // Automatik Star
-      debugln("[HTTP] Star-Modus Automatik"); // Automatic Mode
-      starMode = true;
-      fadeReset();
-      EEPROM.write(betriebsmodusAdress, 1);
-      EEPROM.commit();
-      break;
-    case 2: // An Star
-      if (starMode)
-      {
-        debugln("[HTTP] Star-Modus Manuell"); // Manually Mode
-        starMode = false;
-        fadeReset();
-        EEPROM.write(betriebsmodusAdress, 0);
-        EEPROM.commit();
-      }
-      debugln("[HTTP] Star ON");
-      starSoll = true;
-      fadeReset();
-      EEPROM.write(starAdress, 1);
-      EEPROM.commit();
-      break;
-    case 3: // Aus Star
-      if (starMode)
-      {
-        debugln("[HTTP] Star-Modus Manuell"); // Manually Mode
-        starMode = false;
-        fadeReset();
-        EEPROM.write(betriebsmodusAdress, 0);
-        EEPROM.commit();
-      }
-      debugln("[HTTP] Star OFF");
-      starSoll = false;
-      fadeReset();
-      EEPROM.write(starAdress, 0);
-      EEPROM.commit();
-      break;
+        switch (sliderValues[id])
+        {
+        case 1:                                     // Automatik Star
+            debugln("[HTTP] Star-Modus Automatik"); // Automatic Mode
+            starMode = true;
+            fadeReset();
+            EEPROM.write(betriebsmodusAdress, 1);
+            EEPROM.commit();
+            break;
+        case 2: // An Star
+            if (starMode)
+            {
+                debugln("[HTTP] Star-Modus Manuell"); // Manually Mode
+                starMode = false;
+                fadeReset();
+                EEPROM.write(betriebsmodusAdress, 0);
+                EEPROM.commit();
+            }
+            debugln("[HTTP] Star ON");
+            starSoll = true;
+            fadeReset();
+            EEPROM.write(starAdress, 1);
+            EEPROM.commit();
+            break;
+        case 3: // Aus Star
+            if (starMode)
+            {
+                debugln("[HTTP] Star-Modus Manuell"); // Manually Mode
+                starMode = false;
+                fadeReset();
+                EEPROM.write(betriebsmodusAdress, 0);
+                EEPROM.commit();
+            }
+            debugln("[HTTP] Star OFF");
+            starSoll = false;
+            fadeReset();
+            EEPROM.write(starAdress, 0);
+            EEPROM.commit();
+            break;
 
-    default:
-      break;
+        default:
+            break;
+        }
     }
-  }
-  else if (id == 1) // *** TFL SLIDER ***
-  {
-    switch (sliderValues[id])
+    else if (id == 1) // *** TFL SLIDER ***
     {
-    case 1: // Automatik Star
-      debugln("[HTTP] TFL-Modus Automatik");
-      tflMode = true;
-      EEPROM.write(tflModeAdress, 1);
-      EEPROM.commit();
-      break;
-    case 2: // An TFL
-      if (tflMode)
-      {
-        debugln("[HTTP] TFL-Modus Manuell");
-        tflMode = false;
-        EEPROM.write(tflModeAdress, 0);
+        switch (sliderValues[id])
+        {
+        case 1: // Automatik Star
+            debugln("[HTTP] TFL-Modus Automatik");
+            tflMode = true;
+            EEPROM.write(tflModeAdress, 1);
+            EEPROM.commit();
+            break;
+        case 2: // An TFL
+            if (tflMode)
+            {
+                debugln("[HTTP] TFL-Modus Manuell");
+                tflMode = false;
+                EEPROM.write(tflModeAdress, 0);
+                EEPROM.commit();
+            }
+            debugln("[HTTP] TFL ON");
+            tflSoll = true;
+            EEPROM.write(tflAdress, 1);
+            EEPROM.commit();
+            break;
+        case 3: // Aus TFL
+            if (tflMode)
+            {
+                debugln("[HTTP] TFL-Modus Manuell");
+                tflMode = false;
+                EEPROM.write(tflModeAdress, 0);
+                EEPROM.commit();
+            }
+            debugln("[HTTP] TFL OFF");
+            tflSoll = false;
+            EEPROM.write(tflAdress, 0);
+            EEPROM.commit();
+            break;
+
+        default:
+            break;
+        }
+    }
+    else if (id == 2) // *** STAR FADE TIME SLIDER ***
+    {
+        switch (sliderValues[id])
+        {
+        case 1:
+            debugln("[HTTP] Star Fade-Time: Slow");
+            starFadePause = fadePauseSlow;
+            EEPROM.write(starFadePauseAdress, 1);
+            EEPROM.commit();
+            break;
+        case 2:
+            debugln("[HTTP] Star Fade-Time: Normal");
+            starFadePause = fadePauseNormal;
+            EEPROM.write(starFadePauseAdress, 2);
+            EEPROM.commit();
+            break;
+        case 3:
+            debugln("[HTTP] Star Fade-Time: Fast");
+            starFadePause = fadePauseFast;
+            EEPROM.write(starFadePauseAdress, 3);
+            EEPROM.commit();
+            break;
+
+        default:
+            break;
+        }
+    }
+    else if (id == 3) // *** TFL FADE TIME SLIDER ***
+    {
+        switch (sliderValues[id])
+        {
+        case 1:
+            debugln("[HTTP] TFL Fade-Time: Slow");
+            tflFadePause = fadePauseSlow;
+            EEPROM.write(tflFadePauseAdress, 1);
+            EEPROM.commit();
+            break;
+        case 2:
+            debugln("[HTTP] TFL Fade-Time: Normal");
+            tflFadePause = fadePauseNormal;
+            EEPROM.write(tflFadePauseAdress, 2);
+            EEPROM.commit();
+            break;
+        case 3:
+            debugln("[HTTP] TFL Fade-Time: Fast");
+            tflFadePause = fadePauseFast;
+            EEPROM.write(tflFadePauseAdress, 3);
+            EEPROM.commit();
+            break;
+
+        default:
+            break;
+        }
+    }
+    else if (id == 4) // *** UGLW BRTNS SLIDER ***
+    {
+        debugln("[HTTP] Underglow Brightness: " + String(sliderValues[4]) + " was selected!");
+        uglw_sendValue(2, sliderValues[4], true);
+    }
+    else if (id == 5) // *** UGLW SPEED SLIDER ***
+    {
+        debugln("[HTTP] Underglow Speed: " + String(sliderValues[5]) + " was selected!");
+        uglw_sendValue(3, sliderValues[5], true);
+    }
+    else if (id == 6) // *** BATVOLT THRESHOLD SLIDER ***
+    {
+        debugln("[HTTP] Battery-Voltage Threshold " + String(sliderValuesFloat[0]) + " Volt was selected!");
+        batteryThreshold = sliderValuesFloat[0];
+        EEPROM.put(batVoltThresAdress, batteryThreshold);
         EEPROM.commit();
-      }
-      debugln("[HTTP] TFL ON");
-      tflSoll = true;
-      EEPROM.write(tflAdress, 1);
-      EEPROM.commit();
-      break;
-    case 3: // Aus TFL
-      if (tflMode)
-      {
-        debugln("[HTTP] TFL-Modus Manuell");
-        tflMode = false;
-        EEPROM.write(tflModeAdress, 0);
+    }
+    else if (id == 7) // *** BATVOLT OFFSET INPUTTEXT ***
+    {
+        debugln("[HTTP] Battery-Voltage Offset " + String(sliderValuesFloat[1]) + " Volt was selected!");
+        if (motorRunning)
+            batVoltOffset = sliderValuesFloat[1] + motorVoltOffset;
+        else
+            batVoltOffset = sliderValuesFloat[1];
+        EEPROM.put(batVoltOffsetAdress, batVoltOffset);
         EEPROM.commit();
-      }
-      debugln("[HTTP] TFL OFF");
-      tflSoll = false;
-      EEPROM.write(tflAdress, 0);
-      EEPROM.commit();
-      break;
-
-    default:
-      break;
     }
-  }
-  else if (id == 2) // *** STAR FADE TIME SLIDER ***
-  {
-    switch (sliderValues[id])
+    else if (id == 8) // *** TRANSITION COEFFICIENT ***
     {
-    case 1:
-      debugln("[HTTP] Star Fade-Time: Slow");
-      starFadePause = fadePauseSlow;
-      EEPROM.write(starFadePauseAdress, 1);
-      EEPROM.commit();
-      break;
-    case 2:
-      debugln("[HTTP] Star Fade-Time: Normal");
-      starFadePause = fadePauseNormal;
-      EEPROM.write(starFadePauseAdress, 2);
-      EEPROM.commit();
-      break;
-    case 3:
-      debugln("[HTTP] Star Fade-Time: Fast");
-      starFadePause = fadePauseFast;
-      EEPROM.write(starFadePauseAdress, 3);
-      EEPROM.commit();
-      break;
-
-    default:
-      break;
+        debugln("[HTTP] Transition Coefficient " + String(sliderValuesFloat[2]) + " was selected!");
+        transitionCoefficient = sliderValuesFloat[2];
+        uglw_sendValue(6, transitionCoefficient, false);
+        EEPROM.put(transitionCoefficientAdress, transitionCoefficient);
+        EEPROM.commit();
     }
-  }
-  else if (id == 3) // *** TFL FADE TIME SLIDER ***
-  {
-    switch (sliderValues[id])
+    else if (id == 9) // *** BATVOLT OFFSET MOTOR INPUTTEXT ***
     {
-    case 1:
-      debugln("[HTTP] TFL Fade-Time: Slow");
-      tflFadePause = fadePauseSlow;
-      EEPROM.write(tflFadePauseAdress, 1);
-      EEPROM.commit();
-      break;
-    case 2:
-      debugln("[HTTP] TFL Fade-Time: Normal");
-      tflFadePause = fadePauseNormal;
-      EEPROM.write(tflFadePauseAdress, 2);
-      EEPROM.commit();
-      break;
-    case 3:
-      debugln("[HTTP] TFL Fade-Time: Fast");
-      tflFadePause = fadePauseFast;
-      EEPROM.write(tflFadePauseAdress, 3);
-      EEPROM.commit();
-      break;
-
-    default:
-      break;
+        debugln("[HTTP] Battery-Voltage Offset Motor " + String(sliderValuesFloat[3]) + " Volt was selected!");
+        motorVoltOffset = sliderValuesFloat[3];
+        EEPROM.put(batVoltOffsetMotorAdress, motorVoltOffset);
+        EEPROM.commit();
     }
-  }
-  else if (id == 4) // *** UGLW BRTNS SLIDER ***
-  {
-    debugln("[HTTP] Underglow Brightness: " + String(sliderValues[4]) + " was selected!");
-    uglw_sendValue(2, sliderValues[4], true);
-  }
-  else if (id == 5) // *** UGLW SPEED SLIDER ***
-  {
-    debugln("[HTTP] Underglow Speed: " + String(sliderValues[5]) + " was selected!");
-    uglw_sendValue(3, sliderValues[5], true);
-  }
-  else if (id == 6) // *** BATVOLT THRESHOLD SLIDER ***
-  {
-    debugln("[HTTP] Battery-Voltage Threshold " + String(sliderValuesFloat[0]) + " Volt was selected!");
-    batteryThreshold = sliderValuesFloat[0];
-    EEPROM.put(batVoltThresAdress, batteryThreshold);
-    EEPROM.commit();
-  }
-  else if (id == 7) // *** BATVOLT OFFSET INPUTTEXT ***
-  {
-    debugln("[HTTP] Battery-Voltage Offset " + String(sliderValuesFloat[1]) + " Volt was selected!");
-    if (motorRunning)
-      batVoltOffset = sliderValuesFloat[1] + motorVoltOffset;
-    else
-      batVoltOffset = sliderValuesFloat[1];
-    EEPROM.put(batVoltOffsetAdress, batVoltOffset);
-    EEPROM.commit();
-  }
-  else if (id == 8) // *** TRANSITION COEFFICIENT ***
-  {
-    debugln("[HTTP] Transition Coefficient " + String(sliderValuesFloat[2]) + " was selected!");
-    transitionCoefficient = sliderValuesFloat[2];
-    uglw_sendValue(6, transitionCoefficient, false);
-    EEPROM.put(transitionCoefficientAdress, transitionCoefficient);
-    EEPROM.commit();
-  }
-  else if (id == 9) // *** BATVOLT OFFSET MOTOR INPUTTEXT ***
-  {
-    debugln("[HTTP] Battery-Voltage Offset Motor " + String(sliderValuesFloat[3]) + " Volt was selected!");
-    motorVoltOffset = sliderValuesFloat[3];
-    EEPROM.put(batVoltOffsetMotorAdress, motorVoltOffset);
-    EEPROM.commit();
-  }
-  else if (id == 19) // *** FAVORITE MODE INPUTTEXT ***
-  {
-    debugln("[HTTP] Favorite UGLW Mode " + String(favoriteMode) + " was selected!");
-    EEPROM.write(favoriteModeAdress, favoriteMode);
-    debugln("[HTTP] Favorite UGLW Color 1 " + String(favoriteColor1) + " was selected!");
-    writeColorEEPROM(favoriteColor1, true, 1U);
-    debugln("[HTTP] Favorite UGLW Color 2 " + String(favoriteColor2) + " was selected!");
-    writeColorEEPROM(favoriteColor2, true, 2U);
-    debugln("[HTTP] Favorite UGLW Color 3 " + String(favoriteColor3) + " was selected!");
-    writeColorEEPROM(favoriteColor3, true, 3U);
-    debugln("[HTTP] Favorite UGLW Brightness " + String(favoriteBrtns) + " was selected!");
-    EEPROM.write(favoriteBrtnsAdress, favoriteBrtns);
-    debugln("[HTTP] Favorite UGLW Speed " + String(favoriteSpeed) + " was selected!");
-    writeSpeedEEPROM(favoriteSpeed, true);
-    debugln("[HTTP] Favorite UGLW FadeSize " + String(favoriteFadeSize) + " was selected!");
-    EEPROM.write(favoriteFadeSizeAdress, favoriteFadeSize);
-    EEPROM.commit();
-  }
-  else if (id == 11) // *** UGLW FADESIZE ***
-  {
-    if (sliderValues[6] >= 1 && sliderValues[6] <= 4)
+    else if (id == 19) // *** FAVORITE MODE INPUTTEXT ***
     {
-      uglw_sendValue(9, sliderValues[6], true);
-      switch (sliderValues[6])
-      {
-      case 1:
-        debugln("[HTTP] Underglow FadeSize 'Small' was selected!");
-        break;
-      case 2:
-        debugln("[HTTP] Underglow FadeSize 'Medium' was selected!");
-        break;
-      case 3:
-        debugln("[HTTP] Underglow FadeSize 'Large' was selected!");
-        break;
-      case 4:
-        debugln("[HTTP] Underglow FadeSize 'XLarge' was selected!");
-        break;
-      }
+        debugln("[HTTP] Favorite UGLW Mode " + String(favoriteMode) + " was selected!");
+        EEPROM.write(favoriteModeAdress, favoriteMode);
+        debugln("[HTTP] Favorite UGLW Color 1 " + String(favoriteColor1) + " was selected!");
+        writeColorEEPROM(favoriteColor1, true, 1U);
+        debugln("[HTTP] Favorite UGLW Color 2 " + String(favoriteColor2) + " was selected!");
+        writeColorEEPROM(favoriteColor2, true, 2U);
+        debugln("[HTTP] Favorite UGLW Color 3 " + String(favoriteColor3) + " was selected!");
+        writeColorEEPROM(favoriteColor3, true, 3U);
+        debugln("[HTTP] Favorite UGLW Brightness " + String(favoriteBrtns) + " was selected!");
+        EEPROM.write(favoriteBrtnsAdress, favoriteBrtns);
+        debugln("[HTTP] Favorite UGLW Speed " + String(favoriteSpeed) + " was selected!");
+        writeSpeedEEPROM(favoriteSpeed, true);
+        debugln("[HTTP] Favorite UGLW FadeSize " + String(favoriteFadeSize) + " was selected!");
+        EEPROM.write(favoriteFadeSizeAdress, favoriteFadeSize);
+        EEPROM.commit();
     }
-    else
-      debugln("[HTTP] ERROR - UGLW FadeSize: Out of boundaries - Value: " + String(sliderValues[6]));
-  }
+    else if (id == 11) // *** UGLW FADESIZE ***
+    {
+        if (sliderValues[6] >= 1 && sliderValues[6] <= 4)
+        {
+            uglw_sendValue(9, sliderValues[6], true);
+            switch (sliderValues[6])
+            {
+            case 1:
+                debugln("[HTTP] Underglow FadeSize 'Small' was selected!");
+                break;
+            case 2:
+                debugln("[HTTP] Underglow FadeSize 'Medium' was selected!");
+                break;
+            case 3:
+                debugln("[HTTP] Underglow FadeSize 'Large' was selected!");
+                break;
+            case 4:
+                debugln("[HTTP] Underglow FadeSize 'XLarge' was selected!");
+                break;
+            }
+        }
+        else
+            debugln("[HTTP] ERROR - UGLW FadeSize: Out of boundaries - Value: " + String(sliderValues[6]));
+    }
 }
 
 void interpretButton(int id)
 {
-  if (id == 0)
-  {
-    if (buttonStates[id])
+    if (id == 0)
     {
-      debugln("[HTTP] Strobe: On");
-      debugln("\n selectedModeBef = " + String(selectedModeBef) + " | selectedMode = " + String(selectedMode));
-      if (selectedModeBef != 4)
-      {
-        strobe = true;
-        httpStrobe = true;
-        EEPROM.write(strobeAdress, 1);
-      }
+        if (buttonStates[id])
+        {
+            debugln("[HTTP] Strobe: On");
+            debugln("\n selectedModeBef = " + String(selectedModeBef) + " | selectedMode = " + String(selectedMode));
+            if (selectedModeBef != 4)
+            {
+                strobe = true;
+                httpStrobe = true;
+                EEPROM.write(strobeAdress, 1);
+            }
+        }
+        else
+        {
+            debugln("[HTTP] Strobe: Off");
+            debugln("\n selectedModeBef = " + String(selectedModeBef) + " | selectedMode = " + String(selectedMode));
+            if (selectedModeBef != 4)
+            {
+                strobe = false;
+                httpStrobe = false;
+                EEPROM.write(strobeAdress, 0);
+            }
+        }
+        EEPROM.commit();
     }
-    else
+    if (id == 1)
     {
-      debugln("[HTTP] Strobe: Off");
-      debugln("\n selectedModeBef = " + String(selectedModeBef) + " | selectedMode = " + String(selectedMode));
-      if (selectedModeBef != 4)
-      {
-        strobe = false;
-        httpStrobe = false;
-        EEPROM.write(strobeAdress, 0);
-      }
+        if (buttonStates[id])
+        {
+            debugln("[HTTP] Fade-Mode ON");
+            fadeMode = true;
+            fadeReset();
+        }
+        else
+        {
+            debugln("[HTTP] Fade-Mode OFF");
+            fadeMode = false;
+            fadeReset();
+        }
+        EEPROM.writeBool(fademodusAdress, fadeMode);
+        EEPROM.commit();
     }
-    EEPROM.commit();
-  }
-  if (id == 1)
-  {
-    if (buttonStates[id])
+    if (id == 2)
     {
-      debugln("[HTTP] Fade-Mode ON");
-      fadeMode = true;
-      fadeReset();
+        if (buttonStates[id])
+        {
+            debugln("[HTTP] Star Motor-Rest.: On");
+            starMotorRestriction = true;
+            EEPROM.write(starMotorRestrictionAdress, 1);
+        }
+        else
+        {
+            debugln("[HTTP] Star Motor-Rest.: Off");
+            starMotorRestriction = false;
+            EEPROM.write(starMotorRestrictionAdress, 0);
+        }
+        EEPROM.commit();
     }
-    else
+    if (id == 3)
     {
-      debugln("[HTTP] Fade-Mode OFF");
-      fadeMode = false;
-      fadeReset();
+        if (buttonStates[id])
+        {
+            debugln("[HTTP] UGLW Motor-Rest.: On");
+            uglwMotorRestriction = true;
+            EEPROM.write(uglwMotorRestrictionAdress, 1);
+        }
+        else
+        {
+            debugln("[HTTP] UGLW Motor-Rest.: Off");
+            uglwMotorRestriction = false;
+            EEPROM.write(uglwMotorRestrictionAdress, 0);
+        }
+        EEPROM.commit();
     }
-    EEPROM.writeBool(fademodusAdress, fadeMode);
-    EEPROM.commit();
-  }
-  if (id == 2)
-  {
-    if (buttonStates[id])
+    if (id == 4)
     {
-      debugln("[HTTP] Star Motor-Rest.: On");
-      starMotorRestriction = true;
-      EEPROM.write(starMotorRestrictionAdress, 1);
+        if (buttonStates[id])
+        {
+            debugln("[HTTP] UGLW TFL-Rest.: On");
+            uglwTFLRestriction = true;
+            EEPROM.write(uglwTFLRestrictionAdress, 1);
+        }
+        else
+        {
+            debugln("[HTTP] UGLW TFL-Rest.: Off");
+            uglwTFLRestriction = false;
+            EEPROM.write(uglwTFLRestrictionAdress, 0);
+        }
+        EEPROM.commit();
     }
-    else
-    {
-      debugln("[HTTP] Star Motor-Rest.: Off");
-      starMotorRestriction = false;
-      EEPROM.write(starMotorRestrictionAdress, 0);
-    }
-    EEPROM.commit();
-  }
-  if (id == 3)
-  {
-    if (buttonStates[id])
-    {
-      debugln("[HTTP] UGLW Motor-Rest.: On");
-      uglwMotorRestriction = true;
-      EEPROM.write(uglwMotorRestrictionAdress, 1);
-    }
-    else
-    {
-      debugln("[HTTP] UGLW Motor-Rest.: Off");
-      uglwMotorRestriction = false;
-      EEPROM.write(uglwMotorRestrictionAdress, 0);
-    }
-    EEPROM.commit();
-  }
-  if (id == 4)
-  {
-    if (buttonStates[id])
-    {
-      debugln("[HTTP] UGLW TFL-Rest.: On");
-      uglwTFLRestriction = true;
-      EEPROM.write(uglwTFLRestrictionAdress, 1);
-    }
-    else
-    {
-      debugln("[HTTP] UGLW TFL-Rest.: Off");
-      uglwTFLRestriction = false;
-      EEPROM.write(uglwTFLRestrictionAdress, 0);
-    }
-    EEPROM.commit();
-  }
 }
 
 // Underglow Handlers
 void uglw_sendValue(unsigned int dropdown, float key, bool overwrite = false) // 0 - mode | 1 - color | 2 - brtns | 3 - speed | 4 - Motor-Restriction | 5 - Data-Transmission | 6 - Transition Coefficient | 7 - Color2 | 8 - Color3 | 9 - FadeSize
 {
-  String retval = "";
-  unsigned int payload = 0;
-  if (dropdown == 0 && key >= 0 && key <= 56) // Mode
-  {
-    unsigned int keyI = (unsigned int)key;
-    switch (keyI)
+    String retval = "";
+    unsigned int payload = 0;
+    if (dropdown == 0 && key >= 0 && key <= 56) // Mode
     {
-    case 0:
-      retval = "Mode Static";
-      break;
-    case 1:
-      retval = "Mode Blink";
-      break;
-    case 2:
-      retval = "Mode Breath";
-      break;
-    case 3:
-      retval = "Mode Color Wipe";
-      break;
-    case 7:
-      retval = "Mode Color Wipe Random";
-      break;
-    case 8:
-      retval = "Mode Random Color";
-      break;
-    case 9:
-      retval = "Mode Single Dynamic";
-      break;
-    case 10:
-      retval = "Mode Multi Dynamic";
-      break;
-    case 11:
-      retval = "Mode Rainbow Even";
-      break;
-    case 12:
-      retval = "Mode Rainbow Cycle";
-      break;
-    case 13:
-      retval = "Mode Scan";
-      break;
-    case 14:
-      retval = "Mode Dual Scan";
-      break;
-    case 15:
-      retval = "Mode Breath Fast";
-      break;
-    case 16:
-      retval = "Mode Theater Chase";
-      break;
-    case 17:
-      retval = "Mode Theater Chase Rainbow";
-      break;
-    case 18:
-      retval = "Mode Running Lights";
-      break;
-    case 19:
-      retval = "Mode Twinkle";
-      break;
-    case 20:
-      retval = "Mode Twinkle Random";
-      break;
-    case 21:
-      retval = "Mode Twinkle Fade";
-      break;
-    case 22:
-      retval = "Mode Twinkle Fade Random";
-      break;
-    case 23:
-      retval = "Mode Sparkle";
-      break;
-    case 26:
-      retval = "Mode Strobe";
-      break;
-    case 27:
-      retval = "Mode Strobe Rainbow";
-      break;
-    case 29:
-      retval = "Mode Blink Rainbow";
-      break;
-    case 32:
-      retval = "Mode Chase Random";
-      break;
-    case 33:
-      retval = "Mode Chase Rainbow";
-      break;
-    case 38:
-      retval = "Mode Chase Blackout Rainbow";
-      break;
-    case 40:
-      retval = "Mode Running Color";
-      break;
-    case 41:
-      retval = "Mode Running Red-Blue";
-      break;
-    case 42:
-      retval = "Mode Running Random";
-      break;
-    case 43:
-      retval = "Mode Larson Scanner";
-      break;
-    case 44:
-      retval = "Mode Comet";
-      break;
-    case 45:
-      retval = "Mode Fireworks";
-      break;
-    case 46:
-      retval = "Mode Fireworks Random";
-      break;
-    case 47:
-      retval = "Mode Merry Christmas";
-      break;
-    case 49:
-      retval = "Mode Fire Flicker";
-      break;
-    case 51:
-      retval = "Mode Circus Combustus";
-      break;
-    case 52:
-      retval = "Mode Halloween";
-      break;
-    case 55:
-      retval = "Mode TwinkleFox";
-      break;
-    case 56:
-      retval = "Mode Rain";
-      break;
+        unsigned int keyI = (unsigned int)key;
+        switch (keyI)
+        {
+        case 0:
+            retval = "Mode Static";
+            break;
+        case 1:
+            retval = "Mode Blink";
+            break;
+        case 2:
+            retval = "Mode Breath";
+            break;
+        case 3:
+            retval = "Mode Color Wipe";
+            break;
+        case 7:
+            retval = "Mode Color Wipe Random";
+            break;
+        case 8:
+            retval = "Mode Random Color";
+            break;
+        case 9:
+            retval = "Mode Single Dynamic";
+            break;
+        case 10:
+            retval = "Mode Multi Dynamic";
+            break;
+        case 11:
+            retval = "Mode Rainbow Even";
+            break;
+        case 12:
+            retval = "Mode Rainbow Cycle";
+            break;
+        case 13:
+            retval = "Mode Scan";
+            break;
+        case 14:
+            retval = "Mode Dual Scan";
+            break;
+        case 15:
+            retval = "Mode Breath Fast";
+            break;
+        case 16:
+            retval = "Mode Theater Chase";
+            break;
+        case 17:
+            retval = "Mode Theater Chase Rainbow";
+            break;
+        case 18:
+            retval = "Mode Running Lights";
+            break;
+        case 19:
+            retval = "Mode Twinkle";
+            break;
+        case 20:
+            retval = "Mode Twinkle Random";
+            break;
+        case 21:
+            retval = "Mode Twinkle Fade";
+            break;
+        case 22:
+            retval = "Mode Twinkle Fade Random";
+            break;
+        case 23:
+            retval = "Mode Sparkle";
+            break;
+        case 26:
+            retval = "Mode Strobe";
+            break;
+        case 27:
+            retval = "Mode Strobe Rainbow";
+            break;
+        case 29:
+            retval = "Mode Blink Rainbow";
+            break;
+        case 32:
+            retval = "Mode Chase Random";
+            break;
+        case 33:
+            retval = "Mode Chase Rainbow";
+            break;
+        case 38:
+            retval = "Mode Chase Blackout Rainbow";
+            break;
+        case 40:
+            retval = "Mode Running Color";
+            break;
+        case 41:
+            retval = "Mode Running Red-Blue";
+            break;
+        case 42:
+            retval = "Mode Running Random";
+            break;
+        case 43:
+            retval = "Mode Larson Scanner";
+            break;
+        case 44:
+            retval = "Mode Comet";
+            break;
+        case 45:
+            retval = "Mode Fireworks";
+            break;
+        case 46:
+            retval = "Mode Fireworks Random";
+            break;
+        case 47:
+            retval = "Mode Merry Christmas";
+            break;
+        case 49:
+            retval = "Mode Fire Flicker";
+            break;
+        case 51:
+            retval = "Mode Circus Combustus";
+            break;
+        case 52:
+            retval = "Mode Halloween";
+            break;
+        case 55:
+            retval = "Mode TwinkleFox";
+            break;
+        case 56:
+            retval = "Mode Rain";
+            break;
 
-    default:
-      retval = "Mode " + String(keyI);
-      break;
+        default:
+            retval = "Mode " + String(keyI);
+            break;
+        }
+        if (overwrite)
+        {
+            debugln("\n[LED] Mode was changed!");
+            led_mode = keyI;
+            EEPROM.write(modeAdress, keyI);
+            EEPROM.commit();
+            if (selectedMode == 1)
+                ledSerial.print("mode!" + String(keyI) + "$");
+            else if (selectedMode == 2)
+                uglw_modesel2();
+        }
+        else
+            ledSerial.print("mode!" + String(keyI) + "$");
     }
-    if (overwrite)
+    else if (dropdown == 1 && key >= 0 && key <= 16777215) // Color
     {
-      debugln("\n[LED] Mode was changed!");
-      led_mode = keyI;
-      EEPROM.write(modeAdress, keyI);
-      EEPROM.commit();
-      if (selectedMode == 1)
-        ledSerial.print("mode!" + String(keyI) + "$");
-      else if (selectedMode == 2)
-        uglw_modesel2();
-    }
-    else
-      ledSerial.print("mode!" + String(keyI) + "$");
-  }
-  else if (dropdown == 1 && key >= 0 && key <= 16777215) // Color
-  {
-    unsigned int keyI = (unsigned int)key;
-    switch (keyI)
-    {
-    case 0:
-      retval = "Color 1 Red";
-      payload = 16711680;
-      break;
-    case 1:
-      retval = "Color 1 Green";
-      payload = 65280;
-      break;
-    case 2:
-      retval = "Color 1 Blue";
-      payload = 255;
-      break;
-    case 3:
-      retval = "Color 1 White";
-      payload = 16777215;
-      break;
-    case 4:
-      retval = "Color 1 Yellow";
-      payload = 16776960;
-      break;
-    case 5:
-      retval = "Color 1 Cyan";
-      payload = 65535;
-      break;
-    case 6:
-      retval = "Color 1 Magenta";
-      payload = 16711935;
-      break;
-    case 7:
-      retval = "Color 1 Purple";
-      payload = 4194432;
-      break;
-    case 8:
-      retval = "Color 1 Orange";
-      payload = 16723968;
-      break;
-    case 9:
-      retval = "Color 1 Pink";
-      payload = 16716947;
-      break;
-    case 10:
-      retval = "Color 1 Black";
-      payload = 0;
-      break;
+        unsigned int keyI = (unsigned int)key;
+        switch (keyI)
+        {
+        case 0:
+            retval = "Color 1 Red";
+            payload = 16711680;
+            break;
+        case 1:
+            retval = "Color 1 Green";
+            payload = 65280;
+            break;
+        case 2:
+            retval = "Color 1 Blue";
+            payload = 255;
+            break;
+        case 3:
+            retval = "Color 1 White";
+            payload = 16777215;
+            break;
+        case 4:
+            retval = "Color 1 Yellow";
+            payload = 16776960;
+            break;
+        case 5:
+            retval = "Color 1 Cyan";
+            payload = 65535;
+            break;
+        case 6:
+            retval = "Color 1 Magenta";
+            payload = 16711935;
+            break;
+        case 7:
+            retval = "Color 1 Purple";
+            payload = 4194432;
+            break;
+        case 8:
+            retval = "Color 1 Orange";
+            payload = 16723968;
+            break;
+        case 9:
+            retval = "Color 1 Pink";
+            payload = 16716947;
+            break;
+        case 10:
+            retval = "Color 1 Black";
+            payload = 0;
+            break;
 
-    default:
-      retval = "Color 1 " + String(keyI);
-      payload = keyI;
-      break;
+        default:
+            retval = "Color 1 " + String(keyI);
+            payload = keyI;
+            break;
+        }
+        if (overwrite)
+        {
+            debugln("\n[LED] Color 1 was changed!");
+            led_color1 = payload;
+            writeColorEEPROM(payload, false, 1U);
+            if (selectedMode == 1 || selectedMode == 2)
+                ledSerial.print("color1!" + String(payload) + "$");
+        }
+        else
+            ledSerial.print("color1!" + String(payload) + "$");
     }
-    if (overwrite)
+    else if (dropdown == 7 && key >= 0 && key <= 16777215) // Color
     {
-      debugln("\n[LED] Color 1 was changed!");
-      led_color1 = payload;
-      writeColorEEPROM(payload, false, 1U);
-      if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("color1!" + String(payload) + "$");
-    }
-    else
-      ledSerial.print("color1!" + String(payload) + "$");
-  }
-  else if (dropdown == 7 && key >= 0 && key <= 16777215) // Color
-  {
-    unsigned int keyI = (unsigned int)key;
-    switch (keyI)
-    {
-    case 0:
-      retval = "Color 2 Red";
-      payload = 16711680;
-      break;
-    case 1:
-      retval = "Color 2 Green";
-      payload = 65280;
-      break;
-    case 2:
-      retval = "Color 2 Blue";
-      payload = 255;
-      break;
-    case 3:
-      retval = "Color 2 White";
-      payload = 16777215;
-      break;
-    case 4:
-      retval = "Color 2 Yellow";
-      payload = 16776960;
-      break;
-    case 5:
-      retval = "Color 2 Cyan";
-      payload = 65535;
-      break;
-    case 6:
-      retval = "Color 2 Magenta";
-      payload = 16711935;
-      break;
-    case 7:
-      retval = "Color 2 Purple";
-      payload = 4194432;
-      break;
-    case 8:
-      retval = "Color 2 Orange";
-      payload = 16723968;
-      break;
-    case 9:
-      retval = "Color 2 Pink";
-      payload = 16716947;
-      break;
-    case 10:
-      retval = "Color 2 Black";
-      payload = 0;
+        unsigned int keyI = (unsigned int)key;
+        switch (keyI)
+        {
+        case 0:
+            retval = "Color 2 Red";
+            payload = 16711680;
+            break;
+        case 1:
+            retval = "Color 2 Green";
+            payload = 65280;
+            break;
+        case 2:
+            retval = "Color 2 Blue";
+            payload = 255;
+            break;
+        case 3:
+            retval = "Color 2 White";
+            payload = 16777215;
+            break;
+        case 4:
+            retval = "Color 2 Yellow";
+            payload = 16776960;
+            break;
+        case 5:
+            retval = "Color 2 Cyan";
+            payload = 65535;
+            break;
+        case 6:
+            retval = "Color 2 Magenta";
+            payload = 16711935;
+            break;
+        case 7:
+            retval = "Color 2 Purple";
+            payload = 4194432;
+            break;
+        case 8:
+            retval = "Color 2 Orange";
+            payload = 16723968;
+            break;
+        case 9:
+            retval = "Color 2 Pink";
+            payload = 16716947;
+            break;
+        case 10:
+            retval = "Color 2 Black";
+            payload = 0;
 
-    default:
-      if (keyI == 10)
-      {
-        retval = "Color 2 Black";
-        payload = 0;
-      }
-      else
-      {
-        retval = "Color 2 " + String(keyI);
-        payload = keyI;
-      }
-      break;
+        default:
+            if (keyI == 10)
+            {
+                retval = "Color 2 Black";
+                payload = 0;
+            }
+            else
+            {
+                retval = "Color 2 " + String(keyI);
+                payload = keyI;
+            }
+            break;
+        }
+        if (overwrite)
+        {
+            debugln("\n[LED] Color 2 was changed!");
+            led_color2 = payload;
+            writeColorEEPROM(payload, false, 2U);
+            if (selectedMode == 1 || selectedMode == 2)
+                ledSerial.print("color2!" + String(payload) + "$");
+        }
+        else
+            ledSerial.print("color2!" + String(payload) + "$");
     }
-    if (overwrite)
+    else if (dropdown == 8 && key >= 0 && key <= 16777215) // Color
     {
-      debugln("\n[LED] Color 2 was changed!");
-      led_color2 = payload;
-      writeColorEEPROM(payload, false, 2U);
-      if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("color2!" + String(payload) + "$");
-    }
-    else
-      ledSerial.print("color2!" + String(payload) + "$");
-  }
-  else if (dropdown == 8 && key >= 0 && key <= 16777215) // Color
-  {
-    unsigned int keyI = (unsigned int)key;
-    switch (keyI)
-    {
-    case 0:
-      retval = "Color 3 Red";
-      payload = 16711680;
-      break;
-    case 1:
-      retval = "Color 3 Green";
-      payload = 65280;
-      break;
-    case 2:
-      retval = "Color 3 Blue";
-      payload = 255;
-      break;
-    case 3:
-      retval = "Color 3 White";
-      payload = 16777215;
-      break;
-    case 4:
-      retval = "Color 3 Yellow";
-      payload = 16776960;
-      break;
-    case 5:
-      retval = "Color Cyan";
-      payload = 65535;
-      break;
-    case 6:
-      retval = "Color 3 Magenta";
-      payload = 16711935;
-      break;
-    case 7:
-      retval = "Color 3 Purple";
-      payload = 4194432;
-      break;
-    case 8:
-      retval = "Color 3 Orange";
-      payload = 16723968;
-      break;
-    case 9:
-      retval = "Color 3 Pink";
-      payload = 16716947;
-      break;
-    case 10:
-      retval = "Color 3 Black";
-      payload = 0;
+        unsigned int keyI = (unsigned int)key;
+        switch (keyI)
+        {
+        case 0:
+            retval = "Color 3 Red";
+            payload = 16711680;
+            break;
+        case 1:
+            retval = "Color 3 Green";
+            payload = 65280;
+            break;
+        case 2:
+            retval = "Color 3 Blue";
+            payload = 255;
+            break;
+        case 3:
+            retval = "Color 3 White";
+            payload = 16777215;
+            break;
+        case 4:
+            retval = "Color 3 Yellow";
+            payload = 16776960;
+            break;
+        case 5:
+            retval = "Color Cyan";
+            payload = 65535;
+            break;
+        case 6:
+            retval = "Color 3 Magenta";
+            payload = 16711935;
+            break;
+        case 7:
+            retval = "Color 3 Purple";
+            payload = 4194432;
+            break;
+        case 8:
+            retval = "Color 3 Orange";
+            payload = 16723968;
+            break;
+        case 9:
+            retval = "Color 3 Pink";
+            payload = 16716947;
+            break;
+        case 10:
+            retval = "Color 3 Black";
+            payload = 0;
 
-    default:
-      if (keyI == 10)
-      {
-        retval = "Color 3 Black";
-        payload = 0;
-      }
-      else
-      {
-        retval = "Color 3 " + String(keyI);
-        payload = keyI;
-      }
-      break;
+        default:
+            if (keyI == 10)
+            {
+                retval = "Color 3 Black";
+                payload = 0;
+            }
+            else
+            {
+                retval = "Color 3 " + String(keyI);
+                payload = keyI;
+            }
+            break;
+        }
+        if (overwrite)
+        {
+            debugln("\n[LED] Color 3 was changed!");
+            led_color3 = payload;
+            writeColorEEPROM(payload, false, 3U);
+            if (selectedMode == 1 || selectedMode == 2)
+                ledSerial.print("color3!" + String(payload) + "$");
+        }
+        else
+            ledSerial.print("color3!" + String(payload) + "$");
     }
-    if (overwrite)
+    else if (dropdown == 2 && key >= 0 && key <= 255) // Brtns
     {
-      debugln("\n[LED] Color 3 was changed!");
-      led_color3 = payload;
-      writeColorEEPROM(payload, false, 3U);
-      if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("color3!" + String(payload) + "$");
+        unsigned int keyI = (unsigned int)key;
+        retval = "Brightness " + String(keyI);
+        if (overwrite)
+        {
+            debugln("\n[LED] Brtns was changed!");
+            led_brtns = sliderValues[4];
+            EEPROM.write(brtnsAdress, sliderValues[4]);
+            EEPROM.commit();
+            if (selectedMode == 1 || selectedMode == 2)
+                ledSerial.print("brtns!" + String(keyI) + "$");
+        }
+        else
+            ledSerial.print("brtns!" + String(keyI) + "$");
     }
-    else
-      ledSerial.print("color3!" + String(payload) + "$");
-  }
-  else if (dropdown == 2 && key >= 0 && key <= 255) // Brtns
-  {
-    unsigned int keyI = (unsigned int)key;
-    retval = "Brightness " + String(keyI);
-    if (overwrite)
+    else if (dropdown == 3 && key >= 0 && key <= 65535) // Speed
     {
-      debugln("\n[LED] Brtns was changed!");
-      led_brtns = sliderValues[4];
-      EEPROM.write(brtnsAdress, sliderValues[4]);
-      EEPROM.commit();
-      if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("brtns!" + String(keyI) + "$");
+        unsigned int keyI = (unsigned int)key;
+        retval = "Speed " + String(keyI);
+        if (overwrite)
+        {
+            debugln("\n[LED] Speed was changed!");
+            led_speed = sliderValues[5];
+            writeSpeedEEPROM(sliderValues[5], false);
+            if (selectedMode == 1 || selectedMode == 2)
+                ledSerial.print("speed!" + String(keyI) + "$");
+        }
+        else
+            ledSerial.print("speed!" + String(keyI) + "$");
     }
-    else
-      ledSerial.print("brtns!" + String(keyI) + "$");
-  }
-  else if (dropdown == 3 && key >= 0 && key <= 65535) // Speed
-  {
-    unsigned int keyI = (unsigned int)key;
-    retval = "Speed " + String(keyI);
-    if (overwrite)
+    else if (dropdown == 4 && key >= 0 && key <= 3) // MREST
     {
-      debugln("\n[LED] Speed was changed!");
-      led_speed = sliderValues[5];
-      writeSpeedEEPROM(sliderValues[5], false);
-      if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("speed!" + String(keyI) + "$");
+        unsigned int keyI = (unsigned int)key;
+        ledSerial.print("motor!" + String(keyI) + "$");
+        retval = "Motor-Restriction " + String(keyI);
     }
-    else
-      ledSerial.print("speed!" + String(keyI) + "$");
-  }
-  else if (dropdown == 4 && key >= 0 && key <= 3) // MREST
-  {
-    unsigned int keyI = (unsigned int)key;
-    ledSerial.print("motor!" + String(keyI) + "$");
-    retval = "Motor-Restriction " + String(keyI);
-  }
-  else if (dropdown == 5) // Data-Transmission
-  {
-    unsigned int keyI = (unsigned int)key;
-    ledSerial.print("trans!" + String(keyI) + "$");
-    retval = "Data-Transmission " + String(keyI);
-  }
-  else if (dropdown == 6) // Trans-Coeff
-  {
-    ledSerial.print(String(transitionCoefficient_topic) + "!" + String(key) + "$");
-    retval = "Data-Transmission " + String(key);
-  }
-  else if (dropdown == 9 && key >= 1 && key <= 4) // FadeSize
-  {
-    unsigned int keyI = (unsigned int)key;
-    retval = "FadeSize " + String(keyI);
-    if (overwrite)
+    else if (dropdown == 5) // Data-Transmission
     {
-      debugln("\n[LED] FadeSize was changed!");
-      fadeSize = sliderValues[6];
-      EEPROM.write(fadeSizeAdress, fadeSize);
-      EEPROM.commit();
-      if (selectedMode == 1 || selectedMode == 2)
-        ledSerial.print("fadesize!" + String(keyI) + "$");
+        unsigned int keyI = (unsigned int)key;
+        ledSerial.print("trans!" + String(keyI) + "$");
+        retval = "Data-Transmission " + String(keyI);
     }
-    else
-      ledSerial.print("fadesize!" + String(keyI) + "$");
-  }
-  debugln("\n[HTTP] Underglow " + retval + " was selected!");
+    else if (dropdown == 6) // Trans-Coeff
+    {
+        ledSerial.print(String(transitionCoefficient_topic) + "!" + String(key) + "$");
+        retval = "Data-Transmission " + String(key);
+    }
+    else if (dropdown == 9 && key >= 1 && key <= 4) // FadeSize
+    {
+        unsigned int keyI = (unsigned int)key;
+        retval = "FadeSize " + String(keyI);
+        if (overwrite)
+        {
+            debugln("\n[LED] FadeSize was changed!");
+            fadeSize = sliderValues[6];
+            EEPROM.write(fadeSizeAdress, fadeSize);
+            EEPROM.commit();
+            if (selectedMode == 1 || selectedMode == 2)
+                ledSerial.print("fadesize!" + String(keyI) + "$");
+        }
+        else
+            ledSerial.print("fadesize!" + String(keyI) + "$");
+    }
+    debugln("\n[HTTP] Underglow " + retval + " was selected!");
 }
 
 // Mode selection functions
 void uglw_modesel1()
 {
-  selectedMode = 1;
-  if (selectedModeBef == 4)
-    strobeStop(false);
-  else if (selectedModeBef == 3)
-    tflBool = tflBoolBef;
+    selectedMode = 1;
+    if (selectedModeBef == 4)
+        strobeStop(false);
+    else if (selectedModeBef == 3)
+        tflBool = tflBoolBef;
 }
 
 void uglw_modesel2()
 {
-  selectedMode = 2;
-  if (selectedModeBef == 4)
-    strobeStop(false);
-  else if (selectedModeBef == 3)
-    tflBool = tflBoolBef;
-  if (strobeActiveMQTT)
-  {
-    selectedModeBef = 4;
-    strobeActiveMQTT = false;
-  }
-  if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
-    uglw_sendValue(5, 0); // init data transmission
-  uglw_sendValue(3, led_speed);
-  if (selectedModeBef != 3 || (selectedModeBef == 3 && tflBool))
-    uglw_sendValue(2, led_brtns);
-  else if (selectedModeBef == 3 && !tflBool)
-    uglw_sendValue(2, 0);
-  uglw_sendValue(1, led_color1);
-  uglw_sendValue(7, led_color2);
-  uglw_sendValue(8, led_color3);
-  uglw_sendValue(9, fadeSize);
-  uglw_sendValue(0, led_mode);
-  if (selectedModeBef == 2 || selectedModeBef == 3)
-    uglw_sendValue(5, 5); // transition duration 5ms * 100
-  else if (selectedModeBef == 4)
-    uglw_sendValue(5, 999); // transition duration 0ms
-  if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
-    uglw_sendValue(5, 1); // finish data transmission
-  if (uglwMotorBlock && !uglwMotorBlockSent)
-  {
-    uglw_sendValue(4, 1U, true);
-    uglwMotorBlockSent = true;
-  }
+    selectedMode = 2;
+    if (selectedModeBef == 4)
+        strobeStop(false);
+    else if (selectedModeBef == 3)
+        tflBool = tflBoolBef;
+    if (strobeActiveMQTT)
+    {
+        selectedModeBef = 4;
+        strobeActiveMQTT = false;
+    }
+    if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
+        uglw_sendValue(5, 0); // init data transmission
+    uglw_sendValue(3, led_speed);
+    if (selectedModeBef != 3 || (selectedModeBef == 3 && tflBool))
+        uglw_sendValue(2, led_brtns);
+    else if (selectedModeBef == 3 && !tflBool)
+        uglw_sendValue(2, 0);
+    uglw_sendValue(1, led_color1);
+    uglw_sendValue(7, led_color2);
+    uglw_sendValue(8, led_color3);
+    uglw_sendValue(9, fadeSize);
+    uglw_sendValue(0, led_mode);
+    if (selectedModeBef == 2 || selectedModeBef == 3)
+        uglw_sendValue(5, 5); // transition duration 5ms * 100
+    else if (selectedModeBef == 4)
+        uglw_sendValue(5, 999); // transition duration 0ms
+    if (selectedModeBef == 2 || selectedModeBef == 3 || selectedModeBef == 4)
+        uglw_sendValue(5, 1); // finish data transmission
+    if (uglwMotorBlock && !uglwMotorBlockSent)
+    {
+        uglw_sendValue(4, 1U, true);
+        uglwMotorBlockSent = true;
+    }
 }
 
 void uglw_modesel3()
 {
-  selectedMode = 3;
-  tflBoolBef = tflBool;
-  if (selectedModeBef == 4)
-    strobeStop(false);
-  if (strobeActiveMQTT)
-  {
-    selectedModeBef = 4;
-    strobeActiveMQTT = false;
-  }
-  if (selectedModeBef == 2 || selectedModeBef == 4)
-    uglw_sendValue(5, 0); // init data transmission
-  uglw_sendValue(3, favoriteSpeed);
-  uglw_sendValue(2, favoriteBrtns);
-  uglw_sendValue(1, favoriteColor1);
-  uglw_sendValue(7, favoriteColor2);
-  uglw_sendValue(8, favoriteColor3);
-  uglw_sendValue(9, favoriteFadeSize);
-  uglw_sendValue(0, favoriteMode);
-  if (selectedModeBef == 2)
-    uglw_sendValue(5, 5); // transition duration 5ms * 100
-  else if (selectedModeBef == 4)
-    uglw_sendValue(5, 999); // transition duration 0ms
-  if (uglwMotorBlock)
-  {
-    uglw_sendValue(4, 2U, true);
-    uglwMotorBlockSent = false;
-  }
-  if (selectedModeBef == 2 || selectedModeBef == 4)
-    uglw_sendValue(5, 1); // finish data transmission
+    selectedMode = 3;
+    tflBoolBef = tflBool;
+    if (selectedModeBef == 4)
+        strobeStop(false);
+    if (strobeActiveMQTT)
+    {
+        selectedModeBef = 4;
+        strobeActiveMQTT = false;
+    }
+    if (selectedModeBef == 2 || selectedModeBef == 4)
+        uglw_sendValue(5, 0); // init data transmission
+    uglw_sendValue(3, favoriteSpeed);
+    uglw_sendValue(2, favoriteBrtns);
+    uglw_sendValue(1, favoriteColor1);
+    uglw_sendValue(7, favoriteColor2);
+    uglw_sendValue(8, favoriteColor3);
+    uglw_sendValue(9, favoriteFadeSize);
+    uglw_sendValue(0, favoriteMode);
+    if (selectedModeBef == 2)
+        uglw_sendValue(5, 5); // transition duration 5ms * 100
+    else if (selectedModeBef == 4)
+        uglw_sendValue(5, 999); // transition duration 0ms
+    if (uglwMotorBlock)
+    {
+        uglw_sendValue(4, 2U, true);
+        uglwMotorBlockSent = false;
+    }
+    if (selectedModeBef == 2 || selectedModeBef == 4)
+        uglw_sendValue(5, 1); // finish data transmission
 }
 
 void uglw_modesel4()
 {
-  selectedMode = 4;
-  if (selectedModeBef == 2 || selectedModeBef == 3)
-    uglw_sendValue(5, 0); // init data transmission
-  if (selectedModeBef == 3)
-    tflBool = tflBoolBef;
-  uglw_sendValue(3, LED_SPEED_STROBE);
-  uglw_sendValue(2, 255U);
-  uglw_sendValue(1, 16777215);
-  uglw_sendValue(7, 0);
-  uglw_sendValue(8, 0);
-  uglw_sendValue(0, LED_MODE_STROBE);
-  if (selectedModeBef == 2 || selectedModeBef == 3)
-  {
-    uglw_sendValue(5, 999); // transition duration 0ms
-    if (uglwMotorBlock)
+    selectedMode = 4;
+    if (selectedModeBef == 2 || selectedModeBef == 3)
+        uglw_sendValue(5, 0); // init data transmission
+    if (selectedModeBef == 3)
+        tflBool = tflBoolBef;
+    uglw_sendValue(3, LED_SPEED_STROBE);
+    uglw_sendValue(2, 255U);
+    uglw_sendValue(1, 16777215);
+    uglw_sendValue(7, 0);
+    uglw_sendValue(8, 0);
+    uglw_sendValue(0, LED_MODE_STROBE);
+    if (selectedModeBef == 2 || selectedModeBef == 3)
     {
-      uglw_sendValue(4, 2U, true);
-      uglwMotorBlockSent = false;
+        uglw_sendValue(5, 999); // transition duration 0ms
+        if (uglwMotorBlock)
+        {
+            uglw_sendValue(4, 2U, true);
+            uglwMotorBlockSent = false;
+        }
+        uglw_sendValue(5, 1); // finish data transmission
     }
-    uglw_sendValue(5, 1); // finish data transmission
-  }
-  else
-  {
-    if (uglwMotorBlock)
+    else
     {
-      uglw_sendValue(4, 2U, true);
-      uglwMotorBlockSent = false;
+        if (uglwMotorBlock)
+        {
+            uglw_sendValue(4, 2U, true);
+            uglwMotorBlockSent = false;
+        }
     }
-  }
-  strobeStart(false);
+    strobeStart(false);
 }
 
 // CAN Handlers
 void CAN_sendMessage(unsigned long txID, byte dlc, byte payload[])
 {
-  canSerial.print(txID, HEX);
-  for (int i = 0; i < (int)dlc; i++)
-  {
-    canSerial.print(',');
-    if (payload[i] < 16)
-      canSerial.print("0");
-    canSerial.print(payload[i], HEX);
-  }
-  canSerial.print('!');
+    canSerial.print(txID, HEX);
+    for (int i = 0; i < (int)dlc; i++)
+    {
+        canSerial.print(',');
+        if (payload[i] < 16)
+            canSerial.print("0");
+        canSerial.print(payload[i], HEX);
+    }
+    canSerial.print('!');
 }
 
 void CAN_aliveMessage()
 {
-  if (((millis() > (myLastAveMsg + aveMsgIntervall)) || (myLastAveMsg == 0U)) && connected_clients[2])
-  {
-    myLastAveMsg = millis();
-    byte payload[CAN_DLC] = {CAN_clientID, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0};
-    CAN_sendMessage(CAN_txID, CAN_DLC, payload); // Sending ping rqst to clients
-    canSerial.print("CC!");
-  }
+    // Ping CC
+    if (((millis() > (CAN_pingCC_lastMsg + CAN_pingCC_interval)) || (CAN_pingCC_lastMsg == 0U)) && connected_clients[2])
+    {
+        CAN_pingCC_lastMsg = millis();
+        canSerial.print("CC!");
+    }
 
-  // Timeout StarEmergency
-  if (millis() > (emeg_lastAveMsg + aveMsgTimeout) && (connected_clients[0] || !con_clients_emegBefore))
-  {
-    con_clients_emegBefore = true;
-    connected_clients[0] = false;
-    EEPROM.write(apiOverrideOffAdress, 1);
-    EEPROM.commit();
-    setEmergencyMode();
-    debugln("\n[Timeout-WD] StarClient Emergency timed out!");
-  }
+    // Ping CanClients
+    if ((millis() > (CAN_ping_lastMsg + CAN_ping_interval) || (CAN_ping_lastMsg == 0U)) && connected_clients[2])
+    {
+        // debugln("[PING] No ping rqst since " + String(CAN_ping_interval) + "ms. Sending own ping request!");
+        CAN_ping_lastMsg = millis();
+        byte payload[CAN_DLC] = {CAN_clientID, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0};
+        CAN_sendMessage(CAN_txID, CAN_DLC, payload); // Sending ping rqst to clients
+    }
 
-  // Timeout ShiftGuidance
-  if (millis() > (shift_lastAveMsg + aveMsgTimeout) && connected_clients[1])
-  {
-    connected_clients[1] = false;
-    debugln("\n[Timeout-WD] StarClient ShiftGuidance timed out!");
-  }
+    // Timeout StarEmergency
+    if (millis() > (emeg_lastAveMsg + aveMsgTimeout) && (connected_clients[0] || !con_clients_emegBefore))
+    {
+        con_clients_emegBefore = true;
+        connected_clients[0] = false;
+        EEPROM.write(apiOverrideOffAdress, 1);
+        EEPROM.commit();
+        setEmergencyMode();
+        debugln("\n[Timeout-WD] StarClient Emergency timed out!");
+    }
 
-  // Timeout CANChild
-  if (millis() > (canChild_lastAveMsg + aveMsgTimeout) && connected_clients[2])
-  {
-    connected_clients[2] = false;
-    debugln("\n[Timeout-WD] CANChild timed out!");
-  }
+    // Timeout ShiftGuidance
+    if (millis() > (shift_lastAveMsg + aveMsgTimeout) && connected_clients[1])
+    {
+        connected_clients[1] = false;
+        debugln("\n[Timeout-WD] StarClient ShiftGuidance timed out!");
+    }
+
+    // Timeout CANChild
+    if (millis() > (canChild_lastAveMsg + aveMsgTimeout) && connected_clients[2])
+    {
+        connected_clients[2] = false;
+        debugln("\n[Timeout-WD] CANChild timed out!");
+    }
 }
 
 uint8_t CAN_checkMessages()
 {
-  if (!canSerial.available())
-    return 1;
+    if (!canSerial.available())
+        return 1;
 
-  String rxMsg = canSerial.readStringUntil('!');
+    String rxMsg = canSerial.readStringUntil('!');
 
-  // debugln("[UART] RX MSG: " + String(rxMsg));
+    // debugln("[UART] RX MSG: " + String(rxMsg));
 
-  // Preparing serial string --> getting length and converting to char ary
-  unsigned int msgLength = rxMsg.length();
-  char rxMsgChar[msgLength];
-  rxMsg.toCharArray(rxMsgChar, msgLength + 1, 0);
+    // Preparing serial string --> getting length and converting to char ary
+    unsigned int msgLength = rxMsg.length();
+    char rxMsgChar[msgLength];
+    rxMsg.toCharArray(rxMsgChar, msgLength + 1, 0);
 
-  // Checking for can child readiness
-  if (string_find(rxMsgChar, CAN_childMsg_alive))
-  {
-    if (!connected_clients[2])
-      debugln("[CAN] CANChild connected!");
-    connected_clients[2] = true;
-    canChild_lastAveMsg = millis();
-    canSerial.print("PA!");
-    return 0;
-  }
-  else if (string_find(rxMsgChar, CAN_childMsg_lives))
-  {
-    connected_clients[2] = true;
-    canChild_lastAveMsg = millis();
-    return 0;
-  }
+    // Checking for can child readiness
+    if (string_find(rxMsgChar, CAN_childMsg_alive))
+    {
+        if (!connected_clients[2])
+            debugln("[CAN] CANChild connected!");
+        connected_clients[2] = true;
+        canChild_lastAveMsg = millis();
+        canSerial.print("PA!");
+        return 0;
+    }
+    else if (string_find(rxMsgChar, CAN_childMsg_lives))
+    {
+        connected_clients[2] = true;
+        canChild_lastAveMsg = millis();
+        return 0;
+    }
 
-  // Extracting can msg id value
-  char idChars[4] = {rxMsgChar[0], rxMsgChar[1], rxMsgChar[2], '\0'};
-  unsigned long id = (unsigned long)strtol(idChars, 0, 16);
+    // Extracting can msg id value
+    char idChars[4] = {rxMsgChar[0], rxMsgChar[1], rxMsgChar[2], '\0'};
+    unsigned long id = (unsigned long)strtol(idChars, 0, 16);
 
-  if (id != 0x321) // Filter unwanted ids
-  {
-    debug("[CAN] Filtering ID: ");
+    if (id != 0x321) // Filter unwanted ids
+    {
+        debug("[CAN] Filtering ID: ");
+        debugHEX(id);
+        debugln();
+        return 1;
+    }
+
+    // Converting two chars into one hex value
+    byte payload[CAN_DLC];
+    for (int i = 0; i < CAN_DLC; i++)
+    {
+        char hexChars[3] = {rxMsgChar[4 + i * 3], rxMsgChar[5 + i * 3], '\0'};
+        payload[i] = (byte)strtol(hexChars, 0, 16);
+    }
+
+    // Debug output
+    debug("\n[CAN] RX: ID: ");
     debugHEX(id);
-    debugln();
-    return 1;
-  }
-
-  // Converting two chars into one hex value
-  byte payload[CAN_DLC];
-  for (int i = 0; i < CAN_DLC; i++)
-  {
-    char hexChars[3] = {rxMsgChar[4 + i * 3], rxMsgChar[5 + i * 3], '\0'};
-    payload[i] = (byte)strtol(hexChars, 0, 16);
-  }
-
-  // Debug output
-  debug("\n[CAN] RX: ID: ");
-  debugHEX(id);
-  debug(" | DATA: ");
-  for (int i = 0; i < CAN_DLC; i++)
-  {
-    if ((int)payload[i] < 16)
-      debug("0");
-    debugHEX(payload[i]);
-    debug(" ");
-  }
-
-  // Message interpretation
-  if (payload[2] == CAN_tpc_reset)
-  {
-    if (payload[0] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
+    debug(" | DATA: ");
+    for (int i = 0; i < CAN_DLC; i++)
     {
-      // ACK
-      byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x3, 0x1, 0x0, 0x0, 0x0, 0x0};
-      CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
-
-      ledSerial.print(String(reset_topic) + "!1$");
-      canSerial.print("CR!");
-      delay(250);
-      debugln("\n*****************************************");
-      debugln("\n[RESET] Restarting at your wish master ;)");
-      debugln("\n*****************************************");
-      ESP.restart();
+        if ((int)payload[i] < 16)
+            debug("0");
+        debugHEX(payload[i]);
+        debug(" ");
     }
-    else
-      debugln("[CAN] ERR Topic Reset: Unknown message!");
-  }
-  else if (payload[2] == CAN_tpc_apiovr)
-  {
-    if (payload[0] = 0x1 && payload[1] == 0x1)
-    {
-      if (payload[3] == 0x1)
-      {
-        // ACK
-        byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x2, 0x1, 0x0, 0x0, 0x0, 0x0};
-        CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
 
-        selectedMode = 1;
-        apiOverrideOff = true;
-        EEPROM.write(apiOverrideOffAdress, 1);
-        EEPROM.commit();
-        setEmergencyMode();
-        emeg_lastAveMsg = millis();
-        connected_clients[0] = true;
-      }
-      else if (payload[3] == 0x0)
-      {
-        // ACK
-        byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0};
-        CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
-
-        selectedMode = 2;
-        apiOverrideOff = false;
-        EEPROM.write(apiOverrideOffAdress, 0);
-        EEPROM.commit();
-        resetEmergencyMode();
-        emeg_lastAveMsg = millis();
-        connected_clients[0] = true;
-      }
-      debugln("\n[CAN] Message: APIOVR set to " + String(payload[3]) + "");
-    }
-    else
-      debugln("[CAN] ERR Topic APIOVR: Unknown message!");
-  }
-  else if (payload[2] == CAN_tpc_ping)
-  {
-    if (payload[1] == 0x0) // Request
+    // Message interpretation
+    if (payload[2] == CAN_tpc_reset)
     {
-      debugln("\n[CAN] Message: Ping request");
-      byte txPL[CAN_DLC] = {CAN_clientID, 0x1, CAN_tpc_ping, 0x1, 0x0, 0x0, 0x0, 0x0};
-      CAN_sendMessage(CAN_txID, CAN_DLC, txPL);
-    }
-    else if (payload[1] == 0x1) // Answer
-    {
-      if (payload[0] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
-      {
-        debugln("\n[CAN] Message: Ping from StarEmergency");
-        if (!connected_clients[0])
+        if (payload[0] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
         {
-          con_clients_emegBefore = true;
-          if (!apiOverrideOff)
-            resetEmergencyMode();
-          debugln("[Client] StarEmergency connected!");
+            // ACK
+            byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x3, 0x1, 0x0, 0x0, 0x0, 0x0};
+            CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
+
+            ledSerial.print(String(reset_topic) + "!1$");
+            canSerial.print("CR!");
+            delay(250);
+            debugln("\n*****************************************");
+            debugln("\n[RESET] Restarting at your wish master ;)");
+            debugln("\n*****************************************");
+            ESP.restart();
         }
-        emeg_lastAveMsg = millis();
-        connected_clients[0] = true;
-      }
-      else if (payload[2] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
-      {
-        debugln("\n[CAN] Message: Ping from StarShiftGuidance");
-        if (!connected_clients[1])
-          debugln("[Client] ShiftGuidance connected!");
-        shift_lastAveMsg = millis();
-        connected_clients[1] = true;
-      }
-      else
-        debugln("[CAN] ERR Topic Ping: Unknown client!");
+        else
+            debugln("[CAN] ERR Topic Reset: Unknown message!");
     }
-    else
-      debugln("[CAN] ERR Topic Ping: Unknown message!");
-  }
-  else if (payload[2] == CAN_tpc_selMode)
-  {
-    if (payload[0] == 0x1 && payload[1] == 0x1)
+    else if (payload[2] == CAN_tpc_apiovr)
     {
-      // ACK
-      byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x1, payload[3], 0x0, 0x0, 0x0, 0x0};
-      CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
+        if (payload[0] = 0x1 && payload[1] == 0x1)
+        {
+            if (payload[3] == 0x1)
+            {
+                // ACK
+                byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x2, 0x1, 0x0, 0x0, 0x0, 0x0};
+                CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
 
-      selectedMode = (unsigned int)payload[3];
-      switch (selectedMode)
-      {
-      case 0x1:
-        uglw_modesel1();
-        debugln("\n[CAN] Message: FX Mode Blackout");
-        break;
+                selectedMode = 1;
+                apiOverrideOff = true;
+                EEPROM.write(apiOverrideOffAdress, 1);
+                EEPROM.commit();
+                setEmergencyMode();
+                emeg_lastAveMsg = millis();
+                connected_clients[0] = true;
+            }
+            else if (payload[3] == 0x0)
+            {
+                // ACK
+                byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0};
+                CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
 
-      case 0x2:
-        uglw_modesel2();
-        debugln("\n[CAN] Message: FX Mode HTML controlled");
-        break;
+                selectedMode = 2;
+                apiOverrideOff = false;
+                EEPROM.write(apiOverrideOffAdress, 0);
+                EEPROM.commit();
+                resetEmergencyMode();
+                emeg_lastAveMsg = millis();
+                connected_clients[0] = true;
+            }
+            debugln("\n[CAN] Message: APIOVR set to " + String(payload[3]) + "");
+        }
+        else
+            debugln("[CAN] ERR Topic APIOVR: Unknown message!");
+    }
+    else if (payload[2] == CAN_tpc_ping)
+    {
+        if (payload[1] == 0x0) // Request
+        {
+            debug("\n[CAN] Message: Ping request from ");
+            if (payload[0] == 0x0)
+            {
+                debug("StarEmergency!");
+                if (!connected_clients[0])
+                    debugln("[Client] StarEmergency connected!");
+                emeg_lastAveMsg = millis();
+                connected_clients[0] = true;
+            }
+            else if (payload[0] == 0x2)
+            {
+                debug("ShiftGuidance!");
+                if (!connected_clients[1])
+                    debugln("[Client] ShiftGuidance connected!");
+                shift_lastAveMsg = millis();
+                connected_clients[1] = true;
+            }
+            byte txPL[CAN_DLC] = {CAN_clientID, 0x1, CAN_tpc_ping, 0x1, 0x0, 0x0, 0x0, 0x0};
+            CAN_sendMessage(CAN_txID, CAN_DLC, txPL);
+            // CAN_ping_lastMsg = millis();
+        }
+        else if (payload[1] == 0x1) // Answer
+        {
+            if (payload[0] == 0x1 && payload[1] == 0x1 && payload[3] == 0x1)
+            {
+                debugln("\n[CAN] Message: Ping from StarEmergency");
+                if (!connected_clients[0])
+                {
+                    con_clients_emegBefore = true;
+                    if (!apiOverrideOff)
+                        resetEmergencyMode();
+                    debugln("[Client] StarEmergency connected!");
+                }
+                emeg_lastAveMsg = millis();
+                connected_clients[0] = true;
+            }
+            else if (payload[0] == 0x2 && payload[1] == 0x1 && payload[3] == 0x1)
+            {
+                debugln("\n[CAN] Message: Ping from StarShiftGuidance");
+                if (!connected_clients[1])
+                    debugln("[Client] ShiftGuidance connected!");
+                shift_lastAveMsg = millis();
+                connected_clients[1] = true;
+            }
+            else
+                debugln("[CAN] ERR Topic Ping: Unknown client!");
+        }
+        else
+            debugln("[CAN] ERR Topic Ping: Unknown message!");
+    }
+    else if (payload[2] == CAN_tpc_selMode)
+    {
+        if (payload[0] == 0x1 && payload[1] == 0x1)
+        {
+            // ACK
+            byte payloadACK[CAN_DLC] = {CAN_clientID, 0x2, 0x1, payload[3], 0x0, 0x0, 0x0, 0x0};
+            CAN_sendMessage(CAN_txID, CAN_DLC, payloadACK);
 
-      case 0x3:
-        uglw_modesel3();
-        debugln("\n[CAN] Message: FX Mode Favorite");
-        break;
+            selectedMode = (unsigned int)payload[3];
+            switch (selectedMode)
+            {
+            case 0x1:
+                uglw_modesel1();
+                debugln("\n[CAN] Message: FX Mode Blackout");
+                break;
 
-      case 0x4:
-        uglw_modesel4();
-        debugln("\n[CAN] Message: FX Mode Strobe");
-        break;
+            case 0x2:
+                uglw_modesel2();
+                debugln("\n[CAN] Message: FX Mode HTML controlled");
+                break;
 
-      default:
-        debugln("\n[CAN] ERR Topic Sel. Mode: Unknown mode " + String(selectedMode) + " !");
-        break;
-      }
-      if (!httpStrobe)
-        selectedModeBef = selectedMode;
+            case 0x3:
+                uglw_modesel3();
+                debugln("\n[CAN] Message: FX Mode Favorite");
+                break;
+
+            case 0x4:
+                uglw_modesel4();
+                debugln("\n[CAN] Message: FX Mode Strobe");
+                break;
+
+            default:
+                debugln("\n[CAN] ERR Topic Sel. Mode: Unknown mode " + String(selectedMode) + " !");
+                break;
+            }
+            if (!httpStrobe)
+                selectedModeBef = selectedMode;
+        }
+        else
+            debugln("[CAN] ERR Topic Sel. Mode: Unknown message!");
     }
     else
-      debugln("[CAN] ERR Topic Sel. Mode: Unknown message!");
-  }
-  else
-  {
-    debugln("\n[CAN] ERR Not a subscribed topic!");
-  }
+    {
+        debugln("\n[CAN] ERR Not a subscribed topic!");
+    }
 
-  return 0;
+    return 0;
 }
 
 // Emergency Handlers
 void setEmergencyMode()
 {
-  if (!emergency)
-  {
-    emergency = true;
-    ledSerial.print(String(apiOvrOff_topic) + "!1$");
-    saveOutputParams();
-    apiOverrideLights();
-    debugln("\n[EMERGENCY] Mode activated!");
-  }
+    if (!emergency)
+    {
+        emergency = true;
+        ledSerial.print(String(apiOvrOff_topic) + "!1$");
+        saveOutputParams();
+        apiOverrideLights();
+        debugln("\n[EMERGENCY] Mode activated!");
+    }
 }
 
 void resetEmergencyMode()
 {
-  if (!apiOverrideOff && !batteryEmergency && emergency)
-  {
-    emergency = false;
-    ledSerial.print(String(apiOvrOff_topic) + "!0$");
-    restoreOutputParams();
-    debugln("\n[EMERGENCY] Mode deactivated!");
-  }
-  else if (apiOverrideOff)
-    debugln("\n[EMERGENCY] Mode partly deactivated - Light override active!");
-  else if (batteryEmergency)
-    debugln("\n[EMERGENCY] Mode partly deactivated - Battery-emergency active!");
+    if (!apiOverrideOff && !batteryEmergency && emergency)
+    {
+        emergency = false;
+        ledSerial.print(String(apiOvrOff_topic) + "!0$");
+        restoreOutputParams();
+        debugln("\n[EMERGENCY] Mode deactivated!");
+    }
+    else if (apiOverrideOff)
+        debugln("\n[EMERGENCY] Mode partly deactivated - Light override active!");
+    else if (batteryEmergency)
+        debugln("\n[EMERGENCY] Mode partly deactivated - Battery-emergency active!");
 }
 
 // Serial LED Handlers
 void uglwWriteOutput()
 {
-  uglwTFLRestrictionHandler();
-  if (((uglwMotorRestriction && motorRunning) || uglwTFLRestActive) && !uglwMotorBlock)
-  {
-    uglwMotorBlockSent = true;
-    if (selectedModeBef == 1 || selectedModeBef == 2) // only transmit motor-blockage if motor-restricted modes are active
+    uglwTFLRestrictionHandler();
+    if (((uglwMotorRestriction && motorRunning) || uglwTFLRestActive) && !uglwMotorBlock)
     {
-      uglwMotorBlock = true;
-      uglw_sendValue(5, 5);
-      uglw_sendValue(4, 1U, true);
+        uglwMotorBlockSent = true;
+        if (selectedModeBef == 1 || selectedModeBef == 2) // only transmit motor-blockage if motor-restricted modes are active
+        {
+            uglwMotorBlock = true;
+            uglw_sendValue(5, 5);
+            uglw_sendValue(4, 1U, true);
+        }
     }
-  }
-  else if (((!uglwMotorRestriction || (uglwMotorRestriction && !motorRunning)) && !uglwTFLRestActive) && uglwMotorBlock)
-  {
-    uglwMotorBlockSent = true;
-    if (selectedModeBef == 1 || selectedModeBef == 2)
+    else if (((!uglwMotorRestriction || (uglwMotorRestriction && !motorRunning)) && !uglwTFLRestActive) && uglwMotorBlock)
     {
-      uglwMotorBlock = false;
-      if (!tflBoolBef)
-        uglw_sendValue(2, led_brtns);
-      uglw_sendValue(5, 5);
-      uglw_sendValue(4, 0, true);
+        uglwMotorBlockSent = true;
+        if (selectedModeBef == 1 || selectedModeBef == 2)
+        {
+            uglwMotorBlock = false;
+            if (!tflBoolBef)
+                uglw_sendValue(2, led_brtns);
+            uglw_sendValue(5, 5);
+            uglw_sendValue(4, 0, true);
+        }
     }
-  }
 }
 
 void uglwTFLRestrictionHandler()
 {
-  if (uglwTFLRestriction && !tflBool && !uglwTFLRestActive)
-  {
-    uglwTFLRestActive = true;
-    debugln("\n[UGLW] TFL Rest active!");
-  }
-  else if ((!uglwTFLRestriction || (uglwTFLRestriction && tflBool)) && uglwTFLRestActive)
-  {
-    uglwTFLRestActive = false;
-    debugln("\n[UGLW] TFL Rest inactive!");
-  }
+    if (uglwTFLRestriction && !tflBool && !uglwTFLRestActive)
+    {
+        uglwTFLRestActive = true;
+        debugln("\n[UGLW] TFL Rest active!");
+    }
+    else if ((!uglwTFLRestriction || (uglwTFLRestriction && tflBool)) && uglwTFLRestActive)
+    {
+        uglwTFLRestActive = false;
+        debugln("\n[UGLW] TFL Rest inactive!");
+    }
 }
 
 void serialLEDHandler()
 {
-  if (ledSerial.available())
-  {
-    String topic = ledSerial.readStringUntil('!');
-    String payload = ledSerial.readStringUntil('$');
-    static unsigned long timer_initConnect = 0;
-
-    // debugln("[UGLW] Message arrived - Topic: '" + topic + "' - Payload: '" + payload + "'\n");
-
-    if (String(topic) == "status")
+    if (ledSerial.available())
     {
-      if (String(payload) == "cnt-wtg" && ((millis() > timer_initConnect + 3000) || !serialClientInitConnection))
-      {
-        timer_initConnect = millis();
-        ledSerial.print("status!host-wasborn$");
-        if (emergency)
-          lastSerialMsg = String(apiOvrOff_topic) + "!1$";
-        else
-          lastSerialMsg = String(apiOvrOff_topic) + "!0$";
-        serialClientInitConnection = true;
-        debugln("\n[UGLW] Initializing client communication!");
-        uglwStarted = true;
-        ledSerial.print(lastSerialMsg);
-        uglwTFLRestrictionHandler();
-        uglw_sendValue(6, transitionCoefficient);
-        if (uglwMotorBlock || uglwTFLRestActive)
-          uglw_sendValue(4, 1U, true);
-        else if (!uglwMotorBlock && !uglwTFLRestActive)
-          uglw_sendValue(4, 0U, true);
-      }
-      else if (String(payload) == "cnctd")
-      {
-        serialClientConnection = true;
-        debugln("\n[UGLW] Client successfully connected!");
-      }
-    }
-  }
+        String topic = ledSerial.readStringUntil('!');
+        String payload = ledSerial.readStringUntil('$');
+        static unsigned long timer_initConnect = 0;
 
-  serialAliveMsg();
+        // debugln("[UGLW] Message arrived - Topic: '" + topic + "' - Payload: '" + payload + "'\n");
+
+        if (String(topic) == "status")
+        {
+            if (String(payload) == "cnt-wtg" && ((millis() > timer_initConnect + 3000) || !serialClientInitConnection))
+            {
+                timer_initConnect = millis();
+                ledSerial.print("status!host-wasborn$");
+                if (emergency)
+                    lastSerialMsg = String(apiOvrOff_topic) + "!1$";
+                else
+                    lastSerialMsg = String(apiOvrOff_topic) + "!0$";
+                serialClientInitConnection = true;
+                debugln("\n[UGLW] Initializing client communication!");
+                uglwStarted = true;
+                ledSerial.print(lastSerialMsg);
+                uglwTFLRestrictionHandler();
+                uglw_sendValue(6, transitionCoefficient);
+                if (uglwMotorBlock || uglwTFLRestActive)
+                    uglw_sendValue(4, 1U, true);
+                else if (!uglwMotorBlock && !uglwTFLRestActive)
+                    uglw_sendValue(4, 0U, true);
+            }
+            else if (String(payload) == "cnctd")
+            {
+                serialClientConnection = true;
+                debugln("\n[UGLW] Client successfully connected!");
+            }
+        }
+    }
+
+    serialAliveMsg();
 }
 
 void serialAliveMsg()
 {
-  if (millis() > lastSAMSent + SAMTimeout)
-  {
-    lastSAMSent = millis();
-    ledSerial.print("status!host-alive$");
-  }
+    if (millis() > lastSAMSent + SAMTimeout)
+    {
+        lastSAMSent = millis();
+        ledSerial.print("status!host-alive$");
+    }
 }
 
 bool string_find(char *haystack, char *needle)
 {
-  int compareOffset = 0;
-  while (*haystack)
-  {
-    if (*haystack == *needle)
+    int compareOffset = 0;
+    while (*haystack)
     {
-      compareOffset = 0;
-      while (haystack[compareOffset] == needle[compareOffset])
-      {
-        compareOffset++;
-        if (needle[compareOffset] == '\0')
+        if (*haystack == *needle)
         {
-          return true;
+            compareOffset = 0;
+            while (haystack[compareOffset] == needle[compareOffset])
+            {
+                compareOffset++;
+                if (needle[compareOffset] == '\0')
+                {
+                    return true;
+                }
+            }
         }
-      }
+        haystack++;
     }
-    haystack++;
-  }
-  return false;
+    return false;
 }

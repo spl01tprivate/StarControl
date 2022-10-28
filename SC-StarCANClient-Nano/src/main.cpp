@@ -55,6 +55,10 @@ MCP_CAN CAN0(10); // Set CAN0 CS to pin 10
 const uint16_t aveMsgTimeout = 10000;
 unsigned long parent_lastAveMsg = 0;
 
+// CAN
+char CAN_parentMsg_checkChild[3] = {'C', 'C', '\0'};
+char CAN_parentMsg_restart[3] = {'C', 'R', '\0'};
+
 // ***** PROTOTYPES *****
 void (*resetFunc)(void) = 0; // Reset Function
 void parentComInit();
@@ -64,6 +68,7 @@ void writeUART(unsigned long, byte, byte[]);
 uint8_t readUART();
 uint8_t blinkStatusLED(uint8_t, uint16_t);
 uint8_t timeoutHandler();
+bool string_find(char *, char *);
 
 // ***** SETUP *****
 void setup()
@@ -88,9 +93,10 @@ void setup()
     resetFunc();
   }
 
-  CAN0.init_Mask(0,0,0x03210000);
-  CAN0.init_Mask(1,0,0x03210000);
-  CAN0.init_Filt(0,0,0x03210000);
+  CAN0.init_Mask(0, false, 0x03FF0000);
+  CAN0.init_Filt(0, false, 0x03210000);
+  // CAN0.init_Mask(1, false, 0x07FF0000);
+  // CAN0.init_Filt(2, false, 0x07E80000);
   CAN0.setMode(MCP_NORMAL);
 
   debugln("\n[StarCANClient] Initialization completed...\n");
@@ -140,28 +146,28 @@ uint8_t readUART()
 
   // debugln("[UART] RX MSG: " + String(rxMsg));
 
-  // Checking for parent readiness
-  if (rxMsg == "CC")
-  {
-    Serial.print("CL!");
-    parent_lastAveMsg = millis();
-    return 0;
-  }
-  else if (rxMsg == "CR")
-    resetFunc();
-
   // Preparing serial string --> getting length and converting to char ary
   unsigned int msgLength = rxMsg.length();
   char rxMsgChar[msgLength];
   rxMsg.toCharArray(rxMsgChar, msgLength + 1, 0);
 
+  // Checking for parent readiness
+  if (string_find(rxMsgChar, CAN_parentMsg_checkChild))
+  {
+    Serial.print("CL!");
+    parent_lastAveMsg = millis();
+    return 0;
+  }
+  else if (string_find(rxMsgChar, CAN_parentMsg_restart))
+    resetFunc();
+
   // Extracting can msg id value
   char idChars[4] = {rxMsgChar[0], rxMsgChar[1], rxMsgChar[2], '\0'};
   unsigned long id = (unsigned long)strtol(idChars, 0, 16);
 
-  if (id != 0x321)
+  if (id != 0x321 && id != 0x7DF)
   {
-    debugln("[UART] CAN ID other than 321 - sending no can message!");
+    debugln("[UART] CAN ID other than 321 and 7DF - sending no can message!");
     return 1;
   }
 
@@ -275,4 +281,26 @@ uint8_t timeoutHandler()
     debugln("[UART] Parent timed out!");
     parentComInit();
   }
+}
+
+bool string_find(char *haystack, char *needle)
+{
+  int compareOffset = 0;
+  while (*haystack)
+  {
+    if (*haystack == *needle)
+    {
+      compareOffset = 0;
+      while (haystack[compareOffset] == needle[compareOffset])
+      {
+        compareOffset++;
+        if (needle[compareOffset] == '\0')
+        {
+          return true;
+        }
+      }
+    }
+    haystack++;
+  }
+  return false;
 }
