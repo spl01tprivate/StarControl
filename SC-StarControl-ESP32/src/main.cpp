@@ -364,7 +364,7 @@ void setup()
 
     // ADC
     esp_adc_cal_characteristics_t adc_chars;
-    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &adc_chars);
+    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_13, 1100, &adc_chars);
     vref = adc_chars.vref;
 
     debugln("\n[StarControl-Host] Initialization completed...starting programm loop\n");
@@ -2264,7 +2264,7 @@ void assignServerHandlers()
                 else if (request->getParam(PARAM_INPUT_1)->value().length() == 8)
                   sliderID = String(request->getParam(PARAM_INPUT_1)->value().charAt(6)) + String(request->getParam(PARAM_INPUT_1)->value().charAt(7)); //extract Slider ID from String
 
-                debugln("\n[HTTP-Hanlder] Extracted Slider-ID '" + sliderID + "'!\n");
+                debugln("\n[HTTP-Handler] Extracted Slider-ID '" + sliderID + "'!\n");
 
                 if (String(request->getParam(PARAM_INPUT_1)->value()) == "uglw_speed")
                   sliderID = "5";
